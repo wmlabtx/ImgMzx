@@ -23,11 +23,10 @@ namespace ImgMzx
             sb.Append($"{AppConsts.AttributeRotateMode},"); // 4
             sb.Append($"{AppConsts.AttributeFlipMode},"); // 5
             sb.Append($"{AppConsts.AttributeLastView},"); // 6
-            sb.Append($"{AppConsts.AttributeFamily},"); // 7
-            sb.Append($"{AppConsts.AttributeVerified},"); // 8
-            sb.Append($"{AppConsts.AttributeHorizon},"); // 9
-            sb.Append($"{AppConsts.AttributeCounter},"); // 10
-            sb.Append($"{AppConsts.AttributeNodes}"); // 11
+            sb.Append($"{AppConsts.AttributeVerified},"); // 7
+            sb.Append($"{AppConsts.AttributeHorizon},"); // 8
+            sb.Append($"{AppConsts.AttributeCounter},"); // 9
+            sb.Append($"{AppConsts.AttributeNodes}"); // 10
             return sb.ToString();
         }
 
@@ -40,11 +39,10 @@ namespace ImgMzx
             var rotatemode = (RotateMode)Enum.Parse(typeof(RotateMode), reader.GetInt64(4).ToString());
             var flipmode = (FlipMode)Enum.Parse(typeof(FlipMode), reader.GetInt64(5).ToString());
             var lastview = DateTime.FromBinary(reader.GetInt64(6));
-            var family = reader.GetString(7);
-            var verified = reader.GetBoolean(8);
-            var horizon = reader.GetString(9);
-            var counter = (int)reader.GetInt64(10);
-            var nodes = reader.GetString(11);
+            var verified = reader.GetBoolean(7);
+            var horizon = reader.GetString(8);
+            var counter = (int)reader.GetInt64(9);
+            var nodes = reader.GetString(10);
 
             var img = new Img(
                 hash: hash,
@@ -54,7 +52,6 @@ namespace ImgMzx
                 rotatemode: rotatemode,
                 flipmode: flipmode,
                 lastview: lastview,
-                family: family,
                 verified: verified,
                 horizon: horizon,
                 counter: counter,
@@ -127,7 +124,6 @@ namespace ImgMzx
                     sb.Append($"{AppConsts.AttributeRotateMode},");
                     sb.Append($"{AppConsts.AttributeFlipMode},");
                     sb.Append($"{AppConsts.AttributeLastView},");
-                    sb.Append($"{AppConsts.AttributeFamily},");
                     sb.Append($"{AppConsts.AttributeVerified},");
                     sb.Append($"{AppConsts.AttributeHorizon},");
                     sb.Append($"{AppConsts.AttributeCounter},");
@@ -140,7 +136,6 @@ namespace ImgMzx
                     sb.Append($"@{AppConsts.AttributeRotateMode},");
                     sb.Append($"@{AppConsts.AttributeFlipMode},");
                     sb.Append($"@{AppConsts.AttributeLastView},");
-                    sb.Append($"@{AppConsts.AttributeFamily},");
                     sb.Append($"@{AppConsts.AttributeVerified},");
                     sb.Append($"@{AppConsts.AttributeHorizon},");
                     sb.Append($"@{AppConsts.AttributeCounter},");
@@ -154,7 +149,6 @@ namespace ImgMzx
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRotateMode}", (int)img.RotateMode);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFlipMode}", (int)img.FlipMode);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastView}", img.LastView.Ticks);
-                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", img.Family);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVerified}", img.Verified);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHorizon}", img.Horizon);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeCounter}", img.Counter);
@@ -326,11 +320,6 @@ namespace ImgMzx
             return ImgUpdateProperty(hash, AppConsts.AttributeLastView, DateTime.Now.Ticks);
         }
 
-        public static Img? SetFamily(string hash, string family)
-        {
-            return ImgUpdateProperty(hash, AppConsts.AttributeFamily, family);
-        }
-
         public static Img? UpdateVerified(string hash)
         {
             return ImgUpdateProperty(hash, AppConsts.AttributeVerified, true);
@@ -363,57 +352,21 @@ namespace ImgMzx
         public static Img GetForView()
         {
             lock (_lock) {
-                Img imgX;
-                if (AppVars.RandomNext(2) > 0) {
-                    var families = _imgList
-                        .Where(e => e.Value.Hash.Length > 32)
-                        .Select(e => e.Value.Family)
-                        .Where(e => e.Length > 0)
-                        .Distinct()
-                        .ToArray();
-
-                    if (families.Length > 0) {
-                        var rindex = AppVars.RandomNext(families.Length);
-                        var family = families[rindex];
-                        imgX = _imgList
-                            .Where(e => e.Value.Hash.Length > 32)
-                            .Where(e => e.Value.Family.Equals(family))
-                            .MinBy(e => e.Value.LastView)
-                            .Value;
-                        return imgX;
-                    } 
+                var lastviewValues = _imgList.Select(e => e.Value.LastView.Ticks).OrderBy(v => v).ToList();
+                long medianLastViewTicks;
+                var count = lastviewValues.Count;
+                if (count % 2 == 0) {
+                    long middle1 = lastviewValues[count / 2 - 1];
+                    long middle2 = lastviewValues[count / 2];
+                    medianLastViewTicks = (middle1 + middle2) / 2;
+                }
+                else {
+                    medianLastViewTicks = lastviewValues[count / 2];
                 }
 
-                if (AppVars.RandomNext(2) > 0) {
-                    var used = _imgList
-                        .Where(e => e.Value.Hash.Length > 32)
-                        .Where(e => e.Value.Family.Length == 0 && e.Value.Counter > 0)
-                        .ToArray();
-                    if (used.Length > 0) {
-                        imgX = used
-                            .MinBy(e => e.Value.LastView)
-                            .Value;
-                        return imgX;
-                    }
-                }
-
-                var virgins = _imgList
-                    .Where(e => e.Value.Hash.Length > 32)
-                    .Where(e => e.Value.Family.Length == 0 && e.Value.Counter == 0)
-                    .Select(e => e.Value)
-                    .ToArray();
-                if (virgins.Length > 0) {
-                    var rindex = AppVars.RandomNext(virgins.Length);
-                    imgX = virgins[rindex];
-                    return imgX;
-                }
-
-                imgX = _imgList
-                    .Where(e => e.Value.Hash.Length > 32)
-                    .MinBy(e => e.Value.LastView)
-                    .Value;
-
-                return imgX;
+                var filteredList = _imgList.Where(e => e.Value.LastView.Ticks < medianLastViewTicks).ToList();
+                var randomIndex = AppVars.RandomNext(filteredList.Count);
+                return filteredList[randomIndex].Value;
             }
         }
 
@@ -456,12 +409,14 @@ namespace ImgMzx
                 var vx = img.Vector;
                 var fx = img.Faces;
                 Parallel.For(0, distances.Length, i => {
-                    if (fx.Length == 0 || facesList[i].Length == 0) {
-                        distances[i] = AppVit.GetDistance(vx, vectorList[i]);
+                    if (fx.Length > 0 && facesList[i].Length > 0) {
+                        distances[i] = AppFace.GetDistance(fx, facesList[i]);
+                        if (distances[i] > 0.5f) {
+                            distances[i] = AppVit.GetDistance(vx, vectorList[i]);
+                        }
                     }
                     else {
-                        distances[i] = AppFace.GetDistance(fx, facesList[i]);
-                        distances[i] *= distances[i];
+                        distances[i] = AppVit.GetDistance(vx, vectorList[i]);
                     }
                 });
 
@@ -475,40 +430,6 @@ namespace ImgMzx
         {
             lock (_lock) {
                 return _imgList.Min(e => e.Value.LastView).AddSeconds(-1);
-            }
-        }
-
-        public static void RenameFamily(string ofamily, string nfamily)
-        {
-            string[] omembers;
-            lock (_lock) {
-                omembers = _imgList.Values.Where(e => e.Family.Equals(ofamily)).Select(e => e.Hash).ToArray();
-            }
-
-            foreach (var o in omembers) {
-                SetFamily(o, nfamily);
-            }
-        }
-
-        public static string GetNewFamily()
-        {
-            string family;
-            do {
-                var buffer = AppVars.RandomBuffer(2);
-                family = Convert.ToHexString(buffer);
-            } while (GetFamilySize(family) > 0);
-
-            return family;
-        }
-
-        public static int GetFamilySize(string family)
-        {
-            if (family.Length == 0) {
-                return 0;
-            }
-
-            lock (_lock) {
-                return _imgList.Count(e => e.Value.Family.Equals(family));
             }
         }
     }

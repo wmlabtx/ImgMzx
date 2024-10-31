@@ -27,7 +27,6 @@
         public const string AttributeRotateMode = "rotatemode";
         public const string AttributeFlipMode = "flipmode";
         public const string AttributeLastView = "lastview";
-        public const string AttributeFamily = "family";
         public const string AttributeVerified = "verified";
         public const string AttributeHorizon = "horizon";
         public const string AttributeCounter = "counter";

@@ -49,7 +49,6 @@ namespace ImgMzx
             }
 
             taken = AppBitmap.GetDateTaken(image);
-            familysize = AppImgs.GetFamilySize(img.Family);
             return true;
         }
 
@@ -214,7 +213,6 @@ namespace ImgMzx
             Debug.Assert(imgX != null);
             _imgPanels[0].Img = imgX;
             ImgMdf.Delete(_imgPanels[1].Img.Hash);
-            _imgPanels[0].FamilySize = AppImgs.GetFamilySize(imgX.Family);
 
             _vector.RemoveAt(_position);
             if (_position >= _vector.Count) {
@@ -223,60 +221,6 @@ namespace ImgMzx
 
             if (progress != null) {
                 SetRightPanel(_vector[_position][4..], progress);
-            }
-        }
-
-        private static void UpdateFamiliesOnPanels(Img imgX, Img imgY)
-        {
-            _imgPanels[0].Img = imgX;
-            _imgPanels[0].FamilySize = AppImgs.GetFamilySize(imgX.Family);
-            _imgPanels[1].Img = imgY;
-            _imgPanels[1].FamilySize = AppImgs.GetFamilySize(imgY.Family);
-        }
-
-        public static void CombineToFamily()
-        {
-            var imgX = _imgPanels[0].Img;
-            var imgY = _imgPanels[1].Img;
-            if (string.IsNullOrEmpty(imgX.Family) && string.IsNullOrEmpty(imgY.Family)) {
-                var family = AppImgs.GetNewFamily();
-                imgX = AppImgs.SetFamily(imgX.Hash, family);
-                imgY = AppImgs.SetFamily(imgY.Hash, family);
-            }
-            else {
-                if (string.IsNullOrEmpty(imgY.Family)) {
-                    imgY = AppImgs.SetFamily(imgY.Hash, imgX.Family);
-                }
-                else {
-                    if (string.IsNullOrEmpty(imgX.Family)) {
-                        imgX = AppImgs.SetFamily(imgX.Hash, imgY.Family);
-                    }
-                    else {
-                        if (!imgX.Family.Equals(imgY.Family)) {
-                            AppImgs.RenameFamily(imgY.Family, imgX.Family);
-                            if (!AppImgs.TryGet(imgY.Hash, out imgY)) {
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-
-            Debug.Assert(imgX != null);
-            Debug.Assert(imgY != null);
-            UpdateFamiliesOnPanels(imgX, imgY);
-        }
-
-        public static void DetachFromFamily()
-        {
-            var imgX = _imgPanels[0].Img;
-            var imgY = _imgPanels[1].Img;
-            if (!string.IsNullOrEmpty(imgX.Family) && !string.IsNullOrEmpty(imgY.Family)) {
-                imgX = AppImgs.SetFamily(imgX.Hash, string.Empty);
-                imgY = AppImgs.SetFamily(imgY.Hash, string.Empty);
-                Debug.Assert(imgX != null);
-                Debug.Assert(imgY != null);
-                UpdateFamiliesOnPanels(imgX, imgY);
             }
         }
 

@@ -128,18 +128,8 @@ namespace ImgMzx
                 pBoxes[index].Source = AppBitmap.GetImageSource(panels[index].Image);
                 var sb = new StringBuilder();
                 sb.Append($"{panels[index].Img.Name}.{panels[index].Extension}");
-                if (panels[index].Img.Family.Length > 0) {
-                    sb.Append($" [{panels[index].Img.Family}:{panels[index].FamilySize}");
-                    if (panels[index].Img.Counter > 0) {
-                        sb.Append($":{panels[index].Img.Counter}");
-                    }
-
-                    sb.Append("]");
-                }
-                else {
-                    if (panels[index].Img.Counter > 0) {
-                        sb.Append($" [{panels[index].Img.Counter}]");
-                    }
+                if (panels[index].Img.Counter > 0) {
+                    sb.Append($" [{panels[index].Img.Counter}]");
                 }
 
                 sb.AppendLine();
@@ -155,11 +145,12 @@ namespace ImgMzx
 
                 pLabels[index].Text = sb.ToString();
                 pLabels[index].Background = System.Windows.Media.Brushes.White;
-                if (panels[index].Img.Family.Length > 0 && panels[index].Img.Family.Equals(panels[1 - index].Img.Family)) {
-                    pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
+                if (!panels[index].Img.Verified) {
+                    pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
                 }
                 else {
-                    if (panels[1 - index].Img.Horizon.Length > 0 &&  string.CompareOrdinal(panels[index].Img.Hash, panels[1 - index].Img.Horizon) <= 0) {
+                    if (panels[1 - index].Img.Horizon.Length > 0 &&
+                        string.CompareOrdinal(panels[index].Img.Hash, panels[1 - index].Img.Horizon) <= 0) {
                         pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
                     }
                 }
@@ -294,31 +285,9 @@ namespace ImgMzx
             EnableElements();
         }
 
-        private async void CombineToFamily()
-        {
-            DisableElements();
-            await Task.Run(AppPanels.CombineToFamily).ConfigureAwait(true);
-            DrawCanvas();
-            EnableElements();
-        }
-
-        private async void DetachFromFamily()
-        {
-            DisableElements();
-            await Task.Run(AppPanels.DetachFromFamily).ConfigureAwait(true);
-            DrawCanvas();
-            EnableElements();
-        }
-
         private void OnKeyDown(Key key)
         {
             switch (key) {
-                case Key.A:
-                    CombineToFamily();
-                    break;
-                case Key.D:
-                    DetachFromFamily();
-                    break;
                 case Key.V:
                     ToggleXorClick();
                     break; 

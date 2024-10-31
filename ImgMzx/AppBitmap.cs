@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.IO;
+﻿using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -36,6 +35,8 @@ namespace ImgMzx
                 return img;
             }
             catch (UnknownImageFormatException) {
+            }
+            catch (InvalidImageContentException) {
             }
 
             return null;

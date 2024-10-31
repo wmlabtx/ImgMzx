@@ -11,7 +11,6 @@ namespace ImgMzx
         public RotateMode RotateMode { get; }
         public FlipMode FlipMode { get; }
         public DateTime LastView { get; }
-        public string Family { get; }
         public bool Verified { get; }
         public string Horizon { get; }
         public int Counter { get; }
@@ -25,7 +24,6 @@ namespace ImgMzx
             RotateMode rotatemode,
             FlipMode flipmode,
             DateTime lastview,
-            string family,
             bool verified,
             string horizon,
             int counter,
@@ -39,7 +37,6 @@ namespace ImgMzx
             RotateMode = rotatemode;
             FlipMode = flipmode;
             LastView = lastview;
-            Family = family;
             Verified = verified;
             Horizon = horizon;
             Counter = counter;
