@@ -19,14 +19,13 @@ namespace ImgMzx
             sb.Append($"{AppConsts.AttributeHash},"); // 0
             sb.Append($"{AppConsts.AttributeName},"); // 1
             sb.Append($"{AppConsts.AttributeVector},"); // 2
-            sb.Append($"{AppConsts.AttributeFaces},"); // 3
-            sb.Append($"{AppConsts.AttributeRotateMode},"); // 4
-            sb.Append($"{AppConsts.AttributeFlipMode},"); // 5
-            sb.Append($"{AppConsts.AttributeLastView},"); // 6
-            sb.Append($"{AppConsts.AttributeVerified},"); // 7
-            sb.Append($"{AppConsts.AttributeHorizon},"); // 8
-            sb.Append($"{AppConsts.AttributeCounter},"); // 9
-            sb.Append($"{AppConsts.AttributeNodes}"); // 10
+            sb.Append($"{AppConsts.AttributeRotateMode},"); // 3
+            sb.Append($"{AppConsts.AttributeFlipMode},"); // 4
+            sb.Append($"{AppConsts.AttributeLastView},"); // 5
+            sb.Append($"{AppConsts.AttributeVerified},"); // 6
+            sb.Append($"{AppConsts.AttributeHorizon},"); // 7
+            sb.Append($"{AppConsts.AttributeCounter},"); // 8
+            sb.Append($"{AppConsts.AttributeNodes}"); // 9
             return sb.ToString();
         }
 
@@ -35,20 +34,18 @@ namespace ImgMzx
             var hash = reader.GetString(0);
             var name = reader.GetString(1);
             var vector = Helper.ArrayToFloat((byte[])reader[2]);
-            var faces = Helper.ArrayToFloat((byte[])reader[3]);
-            var rotatemode = (RotateMode)Enum.Parse(typeof(RotateMode), reader.GetInt64(4).ToString());
-            var flipmode = (FlipMode)Enum.Parse(typeof(FlipMode), reader.GetInt64(5).ToString());
-            var lastview = DateTime.FromBinary(reader.GetInt64(6));
-            var verified = reader.GetBoolean(7);
-            var horizon = reader.GetString(8);
-            var counter = (int)reader.GetInt64(9);
-            var nodes = reader.GetString(10);
+            var rotatemode = (RotateMode)Enum.Parse(typeof(RotateMode), reader.GetInt64(3).ToString());
+            var flipmode = (FlipMode)Enum.Parse(typeof(FlipMode), reader.GetInt64(4).ToString());
+            var lastview = DateTime.FromBinary(reader.GetInt64(5));
+            var verified = reader.GetBoolean(6);
+            var horizon = reader.GetString(7);
+            var counter = (int)reader.GetInt64(8);
+            var nodes = reader.GetString(9);
 
             var img = new Img(
                 hash: hash,
                 name: name,
                 vector: vector,
-                faces: faces,
                 rotatemode: rotatemode,
                 flipmode: flipmode,
                 lastview: lastview,
@@ -120,7 +117,6 @@ namespace ImgMzx
                     sb.Append($"{AppConsts.AttributeHash},");
                     sb.Append($"{AppConsts.AttributeName},");
                     sb.Append($"{AppConsts.AttributeVector},");
-                    sb.Append($"{AppConsts.AttributeFaces},");
                     sb.Append($"{AppConsts.AttributeRotateMode},");
                     sb.Append($"{AppConsts.AttributeFlipMode},");
                     sb.Append($"{AppConsts.AttributeLastView},");
@@ -132,7 +128,6 @@ namespace ImgMzx
                     sb.Append($"@{AppConsts.AttributeHash},");
                     sb.Append($"@{AppConsts.AttributeName},");
                     sb.Append($"@{AppConsts.AttributeVector},");
-                    sb.Append($"@{AppConsts.AttributeFaces},");
                     sb.Append($"@{AppConsts.AttributeRotateMode},");
                     sb.Append($"@{AppConsts.AttributeFlipMode},");
                     sb.Append($"@{AppConsts.AttributeLastView},");
@@ -145,7 +140,6 @@ namespace ImgMzx
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeName}", img.Name);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", Helper.ArrayFromFloat(img.Vector));
-                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFaces}", Helper.ArrayFromFloat(img.Faces));
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRotateMode}", (int)img.RotateMode);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFlipMode}", (int)img.FlipMode);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastView}", img.LastView.Ticks);
@@ -192,7 +186,7 @@ namespace ImgMzx
             var length = 5;
             do {
                 length++;
-                name = hash.Substring(0, length);
+                name = hash.Substring(0, length).ToLower();
             } while (ContainsKey(name));
 
             return name;
@@ -289,13 +283,12 @@ namespace ImgMzx
             }
         }
 
-        public static void SetVectorFacesOrientation(string hash, float[] vector, float[] faces, RotateMode rotatemode, FlipMode flipmode)
+        public static Img? SetVectorFacesOrientation(string hash, float[] vector, RotateMode rotatemode, FlipMode flipmode)
         {
             lock (_lock) {
                 var sb = new StringBuilder();
                 sb.Append($"UPDATE {AppConsts.TableImages} SET ");
                 sb.Append($"{AppConsts.AttributeVector} = @{AppConsts.AttributeVector},");
-                sb.Append($"{AppConsts.AttributeVector} = @{AppConsts.AttributeFaces},");
                 sb.Append($"{AppConsts.AttributeRotateMode} = @{AppConsts.AttributeRotateMode},");
                 sb.Append($"{AppConsts.AttributeFlipMode} = @{AppConsts.AttributeFlipMode} ");
                 sb.Append($"WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}");
@@ -304,14 +297,13 @@ namespace ImgMzx
                     sqlCommand.Connection = _sqlConnection;
                     sqlCommand.CommandText = sb.ToString();
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", Helper.ArrayFromFloat(vector));
-                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFaces}", Helper.ArrayFromFloat(faces));
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRotateMode}", (int)rotatemode);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFlipMode}", (int)flipmode);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
                     sqlCommand.ExecuteNonQuery();
                 }
 
-                Replace(Get(hash));
+                return Replace(Get(hash));
             }
         }
 
@@ -352,21 +344,35 @@ namespace ImgMzx
         public static Img GetForView()
         {
             lock (_lock) {
-                var lastviewValues = _imgList.Select(e => e.Value.LastView.Ticks).OrderBy(v => v).ToList();
-                long medianLastViewTicks;
-                var count = lastviewValues.Count;
-                if (count % 2 == 0) {
-                    long middle1 = lastviewValues[count / 2 - 1];
-                    long middle2 = lastviewValues[count / 2];
-                    medianLastViewTicks = (middle1 + middle2) / 2;
-                }
-                else {
-                    medianLastViewTicks = lastviewValues[count / 2];
+                if (AppVars.RandomNext(2) > 0) {
+                    var scope = _imgList.Where(e => e.Value.Horizon.Length > 0).ToArray();
+                    if (scope.Length > 0) {
+                        return scope
+                            .MinBy(e => e.Value.Horizon)
+                            .Value;
+                    }
                 }
 
-                var filteredList = _imgList.Where(e => e.Value.LastView.Ticks < medianLastViewTicks).ToList();
-                var randomIndex = AppVars.RandomNext(filteredList.Count);
-                return filteredList[randomIndex].Value;
+                var scope_zero = _imgList.Where(e => e.Value.Horizon.Length == 0).ToArray();
+                var rindex = AppVars.RandomNext(scope_zero.Length);
+                return scope_zero[rindex].Value;
+
+                /*
+                var rindex = AppVars.RandomNext(1000);
+                if (AppVars.RandomNext(2) > 0) {
+                    return _imgList
+                        .OrderBy(e => e.Value.LastView)
+                        .Skip(rindex)
+                        .First()
+                        .Value;
+                }
+
+                return _imgList
+                    .OrderByDescending(e => e.Value.LastView)
+                    .Skip(1000)
+                    .First()
+                    .Value;
+                */
             }
         }
 
@@ -378,7 +384,11 @@ namespace ImgMzx
                         return img;
                     }
 
-                    if (img is { Counter: > 0, Nodes.Length: <= 32 }) {
+                    if (img is { Counter: > 0, Nodes.Length: <= 32  }) {
+                        return img;
+                    }
+
+                    if (img.Vector.Length != 512) {
                         return img;
                     }
                 }
@@ -389,12 +399,11 @@ namespace ImgMzx
             }
         }
 
-        public static List<string> GetVector(Img img)
+        public static List<string> GetBeam(Img img)
         {
             lock (_lock) {
                 var hashList = new List<string>();
                 var vectorList = new List<float[]>();
-                var facesList = new List<float[]>();
                 foreach (var e in _imgList.Values) {
                     if (e.Hash.Equals(img.Hash)) {
                         continue;
@@ -402,22 +411,12 @@ namespace ImgMzx
 
                     hashList.Add(e.Hash);
                     vectorList.Add(e.Vector);
-                    facesList.Add(e.Faces);
                 }
 
                 var distances = new float[hashList.Count];
                 var vx = img.Vector;
-                var fx = img.Faces;
                 Parallel.For(0, distances.Length, i => {
-                    if (fx.Length > 0 && facesList[i].Length > 0) {
-                        distances[i] = AppFace.GetDistance(fx, facesList[i]);
-                        if (distances[i] > 0.5f) {
-                            distances[i] = AppVit.GetDistance(vx, vectorList[i]);
-                        }
-                    }
-                    else {
-                        distances[i] = AppVit.GetDistance(vx, vectorList[i]);
-                    }
+                    distances[i] = AppVit.GetDistance(vx, vectorList[i]);
                 });
 
                 var vector = hashList.Select((t, i) => Helper.GetHashDistance(t, distances[i])).ToList();

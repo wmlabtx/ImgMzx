@@ -139,9 +139,13 @@ namespace ImgMzx
                 sb.AppendLine();
 
                 sb.Append($" {Helper.TimeIntervalToString(DateTime.Now.Subtract(panels[index].Img.LastView))} ago ");
-                if (panels[index].Taken != null) {
-                    sb.Append($" {panels[index].Taken}");
+                var dateTime = panels[index].Taken;
+                if (dateTime != null) {
+                    sb.Append($" [{dateTime.Value.ToShortDateString()}]");
                 }
+
+                var meta = AppBitmap.GetMeta(panels[index].Image);
+                sb.Append($" {meta}");
 
                 pLabels[index].Text = sb.ToString();
                 pLabels[index].Background = System.Windows.Media.Brushes.White;
@@ -149,8 +153,7 @@ namespace ImgMzx
                     pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
                 }
                 else {
-                    if (panels[1 - index].Img.Horizon.Length > 0 &&
-                        string.CompareOrdinal(panels[index].Img.Hash, panels[1 - index].Img.Horizon) <= 0) {
+                    if (panels[index].Img.Counter > 0) {
                         pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
                     }
                 }

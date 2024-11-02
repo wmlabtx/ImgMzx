@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using System.Text;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace ImgMzx
@@ -12,7 +11,7 @@ namespace ImgMzx
             return _imgPanels[idPanel];
         }
 
-        private static List<string> _vector = new();
+        private static List<string> _beam = new();
         private static int _position;
 
         private static bool SetPanel(
@@ -52,18 +51,6 @@ namespace ImgMzx
             return true;
         }
 
-        private static void GetHorizon(int position, out string horizon, out int counter, out string nodes)
-        {
-            var sb = new StringBuilder();
-            for (var i = 0; i < position; i++) {
-                sb.Append(_vector[position]);
-            }
-
-            horizon = position > 0 ? _vector[position - 1] : string.Empty;
-            counter = position;
-            nodes = sb.Length > 0 ? AppHash.GetHash(Encoding.ASCII.GetBytes(sb.ToString())) : string.Empty;
-        }
-
         public static bool SetLeftPanel(string hash, IProgress<string>? progress)
         {
             progress?.Report($"Rendering left{AppConsts.CharEllipsis}");
@@ -84,15 +71,23 @@ namespace ImgMzx
 
             progress?.Report($"Getting vector{AppConsts.CharEllipsis}");
 
-            _vector = AppImgs.GetVector(img);
+            _beam = AppImgs.GetBeam(img);
             _position = 0;
             if (img.Counter > 0) {
-                while (_position < _vector.Count && string.Compare(_vector[_position], img.Horizon, StringComparison.Ordinal) <= 0) {
+                while (_position < _beam.Count && string.Compare(_beam[_position], img.Horizon, StringComparison.Ordinal) <= 0) {
                     _position++;
                 }
 
-                GetHorizon(_position, out var horizon, out var counter, out var nodes);
-                if (!nodes.Equals(img.Nodes)) {
+                if (_position >= _beam.Count) {
+                    _position = 0;
+                }
+
+                AppHash.GetHorizon(_beam, _position, out var horizon, out var counter, out var nodes);
+                if (counter != img.Counter || !horizon.Equals(img.Horizon) || !nodes.Equals(img.Nodes)) {
+                    _position = 0;
+                    horizon = string.Empty;
+                    counter = 0;
+                    nodes = string.Empty;
                     img = AppImgs.SetHorizonCounterNodes(hash, horizon, counter, nodes);
                     if (img == null) {
                         return false;
@@ -113,7 +108,7 @@ namespace ImgMzx
 
         public static bool UpdateRightPanel(IProgress<string>? progress)
         {
-            return SetRightPanel(_vector[_position][4..], progress);
+            return SetRightPanel(_beam[_position][4..], progress);
         }
 
         public static bool SetRightPanel(string hash, IProgress<string>? progress)
@@ -155,16 +150,16 @@ namespace ImgMzx
 
         public static string GetRight()
         {
-            return _vector[_position][4..];
+            return _beam[_position][4..];
         }
 
         public static void MoveRight(IProgress<string>? progress)
         {
-            if (_position + 1 < _vector.Count) {
+            if (_position + 1 < _beam.Count) {
                 _position++;
             }
 
-            SetRightPanel(_vector[_position][4..], progress);
+            SetRightPanel(_beam[_position][4..], progress);
         }
 
         public static void MoveLeft(IProgress<string>? progress)
@@ -173,27 +168,27 @@ namespace ImgMzx
                 _position--;
             }
 
-            SetRightPanel(_vector[_position][4..], progress);
+            SetRightPanel(_beam[_position][4..], progress);
         }
 
         public static void MoveToTheFirst(IProgress<string>? progress)
         { 
             _position = 0;
-            SetRightPanel(_vector[_position][4..], progress);
+            SetRightPanel(_beam[_position][4..], progress);
         }
 
         public static void MoveToTheLast(IProgress<string>? progress)
         {
-            _position = _vector.Count - 1;
-            SetRightPanel(_vector[_position][4..], progress);
+            _position = _beam.Count - 1;
+            SetRightPanel(_beam[_position][4..], progress);
         }
 
         public static void Confirm()
         {
-            AppImgs.UpdateLastView(_imgPanels[1].Img.Hash);
+            //AppImgs.UpdateLastView(_imgPanels[1].Img.Hash);
             var imgX = AppImgs.UpdateLastView(_imgPanels[0].Img.Hash);
             Debug.Assert(imgX != null);
-            GetHorizon(_position + 1, out var horizon, out var counter, out var nodes); 
+            AppHash.GetHorizon(_beam, _position + 1, out var horizon, out var counter, out var nodes); 
             imgX = AppImgs.SetHorizonCounterNodes(imgX.Hash, horizon, counter, nodes);
             Debug.Assert(imgX != null);
             if (!imgX.Verified) {
@@ -204,7 +199,7 @@ namespace ImgMzx
         public static void DeleteLeft()
         {
             ImgMdf.Delete(_imgPanels[0].Img.Hash);
-            AppImgs.UpdateLastView(_imgPanels[1].Img.Hash);
+            //AppImgs.UpdateLastView(_imgPanels[1].Img.Hash);
         }
 
         public static void DeleteRight(IProgress<string>? progress)
@@ -214,13 +209,13 @@ namespace ImgMzx
             _imgPanels[0].Img = imgX;
             ImgMdf.Delete(_imgPanels[1].Img.Hash);
 
-            _vector.RemoveAt(_position);
-            if (_position >= _vector.Count) {
-                _position = _vector.Count - 1;
+            _beam.RemoveAt(_position);
+            if (_position >= _beam.Count) {
+                _position = _beam.Count - 1;
             }
 
             if (progress != null) {
-                SetRightPanel(_vector[_position][4..], progress);
+                SetRightPanel(_beam[_position][4..], progress);
             }
         }
 
@@ -229,11 +224,10 @@ namespace ImgMzx
             var imgX = _imgPanels[0].Img;
             var imgY = _imgPanels[1].Img;
             var vdistance = AppVit.GetDistance(imgX.Vector, imgY.Vector);
-            var fdistance = AppFace.GetDistance(imgX.Faces, imgY.Faces);
             var postion = _position;
-            var vectorsize = _vector.Count;
+            var vectorsize = _beam.Count;
             if (progress != null) {
-                progress.Report($"{postion}/{vectorsize} v{vdistance:F4} f{fdistance:F4}");
+                progress.Report($"{postion}/{vectorsize} v{vdistance:F4}");
             }
         }
     }

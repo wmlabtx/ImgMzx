@@ -38,7 +38,7 @@ public static partial class ImgMdf
         var imagedata = AppFile.ReadFile(orgfilename);
         Debug.Assert(imagedata != null);
         string hash;
-        if (orgext.Equals(AppConsts.MzxExtension, StringComparison.OrdinalIgnoreCase)) {
+        if (string.IsNullOrEmpty(orgext) || orgext.Equals(AppConsts.MzxExtension, StringComparison.OrdinalIgnoreCase)) {
             var decrypteddata = AppEncryption.Decrypt(imagedata, orgname);
             if (decrypteddata == null) {
                 DeleteFile(orgfilename);
@@ -108,13 +108,6 @@ public static partial class ImgMdf
         }
 
         var vector = AppVit.GetVector(image);
-        if (vector == null) {
-            DeleteFile(orgfilename);
-            _bad++;
-            return true;
-        }
-
-        var faces = AppFace.GetVector(image);
         var name = AppImgs.GetName(hash);
         var newfilename = AppFile.GetFileName(name, AppConsts.PathHp);
         if (!orgfilename.Equals(newfilename)) {
@@ -128,7 +121,6 @@ public static partial class ImgMdf
             hash: hash,
             name: name,
             vector: vector,
-            faces: faces,
             rotatemode: RotateMode.None,
             flipmode: FlipMode.None,
             lastview: lastview,
@@ -211,11 +203,11 @@ public static partial class ImgMdf
         }
         
         var hash = AppHash.GetHash(imagedata);
-        if (hash.Equals(img.Hash)) {
+        if (hash.Equals(img.Hash) && img.Vector.Length == 512) {
             return;
         }
 
-        backgroundworker.ReportProgress(0, $"fixing {img.Name}...");
+        backgroundworker.ReportProgress(0, $"{img.Name}: fixing...");
         using var image = AppBitmap.GetImage(imagedata);
         if (image == null) {
             backgroundworker.ReportProgress(0, $"{img.Name}: image == null");
@@ -224,29 +216,46 @@ public static partial class ImgMdf
         }
 
         var vector = AppVit.GetVector(image);
-        if (vector == null) {
-            backgroundworker.ReportProgress(0, $"{img.Name}: vector == null");
-            Delete(img.Hash);
-            return;
+        if (!hash.Equals(img.Hash)) {
+            var imgnew = new Img(
+                hash: hash,
+                name: img.Name,
+                vector: vector,
+                rotatemode: img.RotateMode,
+                flipmode: img.FlipMode,
+                lastview: img.LastView,
+                verified: img.Verified,
+                horizon: img.Horizon,
+                counter: img.Counter,
+                nodes: img.Nodes
+            );
+
+            AppImgs.Remove(img.Hash);
+            AppImgs.Delete(img.Hash);
+            AppImgs.Save(imgnew);
+            img = imgnew;
+        }
+        else {
+            if (img.Vector.Length != 512) {
+                AppImgs.SetVectorFacesOrientation(img.Hash, vector, img.RotateMode, img.FlipMode);
+            }
         }
 
-        var faces = AppFace.GetVector(image);
-        var imgnew = new Img(
-            hash: hash,
-            name: img.Name,
-            vector: vector,
-            faces: faces,
-            rotatemode: img.RotateMode,
-            flipmode: img.FlipMode,
-            lastview: img.LastView,
-            verified: img.Verified,
-            horizon: img.Horizon,
-            counter: img.Counter,
-            nodes: img.Nodes
-        );
+        if (img.Counter > 0) {
+            var beam = AppImgs.GetBeam(img);
+            var position = 0;
+            while (position < beam.Count && string.Compare(beam[position], img.Horizon, StringComparison.Ordinal) <= 0) {
+                position++;
+            }
 
-        AppImgs.Remove(img.Hash);
-        AppImgs.Delete(img.Hash);
-        AppImgs.Save(imgnew);
+            AppHash.GetHorizon(beam, position, out var horizon, out var counter, out var nodes);
+            if (counter != img.Counter || !horizon.Equals(img.Horizon) || !nodes.Equals(img.Nodes)) {
+                horizon = string.Empty;
+                counter = 0;
+                nodes = string.Empty;
+                backgroundworker.ReportProgress(0, $"{img.Name}: [{img.Counter}] {AppConsts.CharRightArrow} [{counter}]");
+                _ = AppImgs.SetHorizonCounterNodes(hash, horizon, counter, nodes);
+            }
+        }
     }
 }

@@ -65,15 +65,9 @@ namespace ImgMzx
             }
 
             var rvector = AppVit.GetVector(image);
-            if (rvector == null) {
-                return;
-            }
-
-            var rfaces = AppFace.GetVector(image);
             AppImgs.SetVectorFacesOrientation(
                 hash: hash,
                 vector: rvector,
-                faces: rfaces,
                 rotatemode: rotatemode,
                 flipmode: flipmode);
         }

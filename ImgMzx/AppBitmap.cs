@@ -210,29 +210,75 @@ namespace ImgMzx
             return dateTaken;
         }
 
-        public static void Composite(Image<Rgb24> x, Image<Rgb24> y, out Image<Rgb24> zb)
+        public static string GetMeta(Image<Rgb24> image)
         {
-            var originalWidth = y.Width;
-            var originalHeight = y.Height;
+            var metadata = image.Metadata;
+            var parts = new List<string>();
+            if (metadata.ExifProfile != null) {
+                parts.Add($"E:{metadata.ExifProfile.Values.Count}");
+            }
 
-            var xb = x.Clone(ctx => ctx
+            if (metadata.IptcProfile != null) {
+                parts.Add($"P:{metadata.IptcProfile.Values.Count()}");
+            }
+
+            if (metadata.IccProfile != null) {
+                parts.Add($"C:{metadata.IccProfile.Entries.Length}");
+            }
+
+            if (metadata.XmpProfile != null) {
+                parts.Add($"X:{metadata.XmpProfile.ToByteArray().Length}");
+            }
+
+            var digest = string.Join(" ", parts);
+            if (digest.Length > 30) {
+                digest = digest[..30];
+            }
+
+            return digest;
+        }
+
+        public static void Composite(Image<Rgb24> ix, Image<Rgb24> iy, out Image<Rgb24> zb)
+        {
+            var originalWidth = iy.Width;
+            var originalHeight = iy.Height;
+
+            var xb = ix.Clone(ctx => ctx
                 .Resize(new ResizeOptions {
                     Size = new SixLabors.ImageSharp.Size(512, 512),
                     Mode = ResizeMode.Stretch
                 }));
 
-            var yb = y.Clone(ctx => ctx
+            var yb = iy.Clone(ctx => ctx
                 .Resize(new ResizeOptions {
                     Size = new SixLabors.ImageSharp.Size(512, 512),
                     Mode = ResizeMode.Stretch
                 }));
 
             zb = xb.CloneAs<Rgb24>();
-            var go = new GraphicsOptions {
-                ColorBlendingMode = PixelColorBlendingMode.Subtract,
-                BlendPercentage = 0.9f
-            };
-            zb.Mutate(e => e.DrawImage(yb, go));
+            for (var y = 0; y < 512; y++) {
+                for (var x = 0; x < 512; x++) {
+                    var pixel1 = xb[x, y];
+                    var pixel2 = yb[x, y];
+
+                    var rDiff = pixel1.R - pixel2.R;
+                    var gDiff = pixel1.G - pixel2.G;
+                    var bDiff = pixel1.B - pixel2.B;
+
+                    var distance = Math.Sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff);
+
+                    if (distance >= 50) {
+                        zb[x, y] = new Rgb24(255, 255, 255);
+                    }
+                    else {
+                        var newR = (byte)(pixel1.R * 0.2f);
+                        var newG = (byte)(pixel1.G * 0.2f);
+                        var newB = (byte)(pixel1.B * 0.2f);
+                        zb[x, y] = new Rgb24(newR, newG, newB);
+                    }
+                }
+            }
+
             zb.Mutate(e => e
                 .Resize(new ResizeOptions {
                     Size = new SixLabors.ImageSharp.Size(originalWidth, originalHeight),

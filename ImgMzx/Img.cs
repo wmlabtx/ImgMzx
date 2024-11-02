@@ -7,7 +7,6 @@ namespace ImgMzx
         public string Hash { get; }
         public string Name { get; }
         public float[] Vector { get; }
-        public float[] Faces { get; }
         public RotateMode RotateMode { get; }
         public FlipMode FlipMode { get; }
         public DateTime LastView { get; }
@@ -20,7 +19,6 @@ namespace ImgMzx
             string hash,
             string name,
             float[] vector,
-            float[] faces,
             RotateMode rotatemode,
             FlipMode flipmode,
             DateTime lastview,
@@ -33,7 +31,6 @@ namespace ImgMzx
             Hash = hash;
             Name = name;
             Vector = vector;
-            Faces = faces;
             RotateMode = rotatemode;
             FlipMode = flipmode;
             LastView = lastview;
