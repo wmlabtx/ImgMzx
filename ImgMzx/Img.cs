@@ -14,6 +14,7 @@ namespace ImgMzx
         public string Horizon { get; }
         public int Counter { get; }
         public string Nodes { get; }
+        public string Distance { get; }
 
         public Img(
             string hash,
@@ -25,7 +26,8 @@ namespace ImgMzx
             bool verified,
             string horizon,
             int counter,
-            string nodes
+            string nodes,
+            string distance
             )
         {
             Hash = hash;
@@ -38,6 +40,7 @@ namespace ImgMzx
             Horizon = horizon;
             Counter = counter;
             Nodes = nodes;
+            Distance = distance;
         }
     }
 }

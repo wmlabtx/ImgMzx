@@ -25,7 +25,8 @@ namespace ImgMzx
             sb.Append($"{AppConsts.AttributeVerified},"); // 6
             sb.Append($"{AppConsts.AttributeHorizon},"); // 7
             sb.Append($"{AppConsts.AttributeCounter},"); // 8
-            sb.Append($"{AppConsts.AttributeNodes}"); // 9
+            sb.Append($"{AppConsts.AttributeNodes},"); // 9
+            sb.Append($"{AppConsts.AttributeDistance}"); // 10
             return sb.ToString();
         }
 
@@ -41,6 +42,7 @@ namespace ImgMzx
             var horizon = reader.GetString(7);
             var counter = (int)reader.GetInt64(8);
             var nodes = reader.GetString(9);
+            var distance = reader.GetString(10);
 
             var img = new Img(
                 hash: hash,
@@ -52,7 +54,8 @@ namespace ImgMzx
                 verified: verified,
                 horizon: horizon,
                 counter: counter,
-                nodes: nodes
+                nodes: nodes,
+                distance: distance
             );
 
             return img;
@@ -123,7 +126,8 @@ namespace ImgMzx
                     sb.Append($"{AppConsts.AttributeVerified},");
                     sb.Append($"{AppConsts.AttributeHorizon},");
                     sb.Append($"{AppConsts.AttributeCounter},");
-                    sb.Append($"{AppConsts.AttributeNodes}");
+                    sb.Append($"{AppConsts.AttributeNodes},");
+                    sb.Append($"{AppConsts.AttributeDistance}");
                     sb.Append(") VALUES (");
                     sb.Append($"@{AppConsts.AttributeHash},");
                     sb.Append($"@{AppConsts.AttributeName},");
@@ -134,7 +138,8 @@ namespace ImgMzx
                     sb.Append($"@{AppConsts.AttributeVerified},");
                     sb.Append($"@{AppConsts.AttributeHorizon},");
                     sb.Append($"@{AppConsts.AttributeCounter},");
-                    sb.Append($"@{AppConsts.AttributeNodes}");
+                    sb.Append($"@{AppConsts.AttributeNodes},");
+                    sb.Append($"@{AppConsts.AttributeDistance}");
                     sb.Append(')');
                     sqlCommand.CommandText = sb.ToString();
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
@@ -147,6 +152,7 @@ namespace ImgMzx
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHorizon}", img.Horizon);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeCounter}", img.Counter);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeNodes}", img.Nodes);
+                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
                     sqlCommand.ExecuteNonQuery();
                 }
 
@@ -317,14 +323,15 @@ namespace ImgMzx
             return ImgUpdateProperty(hash, AppConsts.AttributeVerified, true);
         }
 
-        public static Img? SetHorizonCounterNodes(string hash, string horizon, int counter, string nodes)
+        public static Img? SetHorizonCounterNodesDistance(string hash, string horizon, int counter, string nodes, string distance)
         {
             lock (_lock) {
                 var sb = new StringBuilder();
                 sb.Append($"UPDATE {AppConsts.TableImages} SET ");
                 sb.Append($"{AppConsts.AttributeHorizon} = @{AppConsts.AttributeHorizon},");
                 sb.Append($"{AppConsts.AttributeCounter} = @{AppConsts.AttributeCounter},");
-                sb.Append($"{AppConsts.AttributeNodes} = @{AppConsts.AttributeNodes} ");
+                sb.Append($"{AppConsts.AttributeNodes} = @{AppConsts.AttributeNodes},");
+                sb.Append($"{AppConsts.AttributeDistance} = @{AppConsts.AttributeDistance} ");
                 sb.Append($"WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}");
 
                 using (var sqlCommand = _sqlConnection.CreateCommand()) {
@@ -333,6 +340,7 @@ namespace ImgMzx
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHorizon}", horizon);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeCounter}", counter);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeNodes}", nodes);
+                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", distance);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
                     sqlCommand.ExecuteNonQuery();
                 }
@@ -344,6 +352,14 @@ namespace ImgMzx
         public static Img GetForView()
         {
             lock (_lock) {
+                return _imgList
+                    .OrderBy(e => e.Value.Counter)
+                    .ThenBy(e => e.Value.Distance)
+                    .ThenBy(e => e.Value.LastView)
+                    .First()
+                    .Value;
+
+                /*
                 if (AppVars.RandomNext(2) > 0) {
                     var scope = _imgList.Where(e => e.Value.Horizon.Length > 0).ToArray();
                     if (scope.Length > 0) {
@@ -352,11 +368,13 @@ namespace ImgMzx
                             .Value;
                     }
                 }
+                */
 
+                /*
                 var scope_zero = _imgList.Where(e => e.Value.Horizon.Length == 0).ToArray();
                 var rindex = AppVars.RandomNext(scope_zero.Length);
                 return scope_zero[rindex].Value;
-
+                */
                 /*
                 var rindex = AppVars.RandomNext(1000);
                 if (AppVars.RandomNext(2) > 0) {
@@ -401,28 +419,31 @@ namespace ImgMzx
 
         public static List<string> GetBeam(Img img)
         {
+            Img[] shadow;
             lock (_lock) {
-                var hashList = new List<string>();
-                var vectorList = new List<float[]>();
-                foreach (var e in _imgList.Values) {
-                    if (e.Hash.Equals(img.Hash)) {
-                        continue;
-                    }
+                shadow = _imgList.Values.ToArray();
+            }
 
-                    hashList.Add(e.Hash);
-                    vectorList.Add(e.Vector);
+            var hashList = new List<string>();
+            var vectorList = new List<float[]>();
+            foreach (var e in shadow) {
+                if (e.Hash.Equals(img.Hash)) {
+                    continue;
                 }
 
-                var distances = new float[hashList.Count];
-                var vx = img.Vector;
-                Parallel.For(0, distances.Length, i => {
-                    distances[i] = AppVit.GetDistance(vx, vectorList[i]);
-                });
-
-                var vector = hashList.Select((t, i) => Helper.GetHashDistance(t, distances[i])).ToList();
-                vector.Sort();
-                return vector;
+                hashList.Add(e.Hash);
+                vectorList.Add(e.Vector);
             }
+
+            var distances = new float[hashList.Count];
+            var vx = img.Vector;
+            Parallel.For(0, distances.Length, i => {
+                distances[i] = AppVit.GetDistance(vx, vectorList[i]);
+            });
+
+            var vector = hashList.Select((t, i) => Helper.GetHashDistance(t, distances[i])).ToList();
+            vector.Sort();
+            return vector;
         }
 
         public static DateTime GetMinimalLastView()

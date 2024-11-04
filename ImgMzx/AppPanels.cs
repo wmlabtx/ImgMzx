@@ -82,13 +82,14 @@ namespace ImgMzx
                     _position = 0;
                 }
 
-                AppHash.GetHorizon(_beam, _position, out var horizon, out var counter, out var nodes);
+                AppHash.GetHorizon(_beam, _position, out var horizon, out var counter, out var nodes, out var distance);
                 if (counter != img.Counter || !horizon.Equals(img.Horizon) || !nodes.Equals(img.Nodes)) {
                     _position = 0;
                     horizon = string.Empty;
                     counter = 0;
                     nodes = string.Empty;
-                    img = AppImgs.SetHorizonCounterNodes(hash, horizon, counter, nodes);
+                    distance = _beam[0][..4];
+                    img = AppImgs.SetHorizonCounterNodesDistance(hash, horizon, counter, nodes, distance);
                     if (img == null) {
                         return false;
                     }
@@ -188,8 +189,8 @@ namespace ImgMzx
             //AppImgs.UpdateLastView(_imgPanels[1].Img.Hash);
             var imgX = AppImgs.UpdateLastView(_imgPanels[0].Img.Hash);
             Debug.Assert(imgX != null);
-            AppHash.GetHorizon(_beam, _position + 1, out var horizon, out var counter, out var nodes); 
-            imgX = AppImgs.SetHorizonCounterNodes(imgX.Hash, horizon, counter, nodes);
+            AppHash.GetHorizon(_beam, _position + 1, out var horizon, out var counter, out var nodes, out var distance); 
+            imgX = AppImgs.SetHorizonCounterNodesDistance(imgX.Hash, horizon, counter, nodes, distance);
             Debug.Assert(imgX != null);
             if (!imgX.Verified) {
                 AppImgs.UpdateVerified(imgX.Hash);

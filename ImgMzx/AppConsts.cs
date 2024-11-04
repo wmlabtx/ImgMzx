@@ -30,5 +30,6 @@
         public const string AttributeHorizon = "horizon";
         public const string AttributeCounter = "counter";
         public const string AttributeNodes = "nodes";
+        public const string AttributeDistance = "distance";
     }
 }
