@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.ComponentModel;
+using System.Diagnostics;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace ImgMzx
@@ -20,15 +21,13 @@ namespace ImgMzx
             out Img? img, 
             out SixLabors.ImageSharp.Image<Rgb24>? image,
             out string extension, 
-            out DateTime? taken,
-            out int familysize)
+            out DateTime? taken)
         {
             imagedata = null;
             img = null;
             image = null;
             extension = "xxx";
             taken = null;
-            familysize = 0;
             if (!AppImgs.TryGet(hash, out img)) {
                 return false;
             }
@@ -60,8 +59,7 @@ namespace ImgMzx
                     out var img, 
                     out var image,
                     out var extension,
-                    out var taken,
-                    out var familysize)) {
+                    out var taken)) {
                 return false;
             }
 
@@ -72,37 +70,32 @@ namespace ImgMzx
             progress?.Report($"Getting vector{AppConsts.CharEllipsis}");
 
             _beam = AppImgs.GetBeam(img);
-            _position = 0;
-            if (img.Counter > 0) {
-                while (_position < _beam.Count && string.Compare(_beam[_position], img.Horizon, StringComparison.Ordinal) <= 0) {
-                    _position++;
-                }
-
-                if (_position >= _beam.Count) {
-                    _position = 0;
-                }
-
-                AppHash.GetHorizon(_beam, _position, out var horizon, out var counter, out var nodes, out var distance);
-                if (counter != img.Counter || !horizon.Equals(img.Horizon) || !nodes.Equals(img.Nodes)) {
-                    _position = 0;
-                    horizon = string.Empty;
-                    counter = 0;
-                    nodes = string.Empty;
-                    distance = _beam[0][..4];
-                    img = AppImgs.SetHorizonCounterNodesDistance(hash, horizon, counter, nodes, distance);
-                    if (img == null) {
-                        return false;
+            if (img is { Counter: 0, Horizon.Length: > 0 }) {
+                img = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
+            }
+            else {
+                if (img.Counter > 0) {
+                    if (img.Counter >= _beam.Count) {
+                        img = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
+                    }
+                    else {
+                        var horizon = _beam[img.Counter - 1];
+                        if (!horizon.Equals(img.Horizon)) {
+                            img = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
+                        }
                     }
                 }
             }
+
+            Debug.Assert(img != null);
+            _position = img.Counter;
 
             var imgpanel = new ImgPanel(
                 img: img,
                 size: imagedata.LongLength,
                 image: image,
                 extension: extension,
-                taken: taken,
-                familysize: familysize);
+                taken: taken);
             _imgPanels[0] = imgpanel;
             return true;
         }
@@ -121,8 +114,7 @@ namespace ImgMzx
                     out var img,
                     out var image,
                     out var extension,
-                    out var taken,
-                    out var familysize)) {
+                    out var taken)) {
                 return false;
             }
 
@@ -141,8 +133,7 @@ namespace ImgMzx
                 size: imagedata.LongLength,
                 image: image,
                 extension: extension,
-                taken: taken,
-                familysize: familysize);
+                taken: taken);
 
             _imgPanels[1] = imgpanel;
             UpdateStatus(progress);
@@ -186,11 +177,17 @@ namespace ImgMzx
 
         public static void Confirm()
         {
-            //AppImgs.UpdateLastView(_imgPanels[1].Img.Hash);
+            AppImgs.UpdateLastView(_imgPanels[1].Img.Hash);
             var imgX = AppImgs.UpdateLastView(_imgPanels[0].Img.Hash);
             Debug.Assert(imgX != null);
-            AppHash.GetHorizon(_beam, _position + 1, out var horizon, out var counter, out var nodes, out var distance); 
-            imgX = AppImgs.SetHorizonCounterNodesDistance(imgX.Hash, horizon, counter, nodes, distance);
+            var horizon = _beam[_position];
+            var counter = _position + 1;
+            if (counter >= _beam.Count) {
+                horizon = string.Empty;
+                counter = 0;
+            }
+
+            imgX = AppImgs.SetHorizonCounter(imgX.Hash, horizon, counter);
             Debug.Assert(imgX != null);
             if (!imgX.Verified) {
                 AppImgs.UpdateVerified(imgX.Hash);
@@ -200,7 +197,7 @@ namespace ImgMzx
         public static void DeleteLeft()
         {
             ImgMdf.Delete(_imgPanels[0].Img.Hash);
-            //AppImgs.UpdateLastView(_imgPanels[1].Img.Hash);
+            AppImgs.UpdateLastView(_imgPanels[1].Img.Hash);
         }
 
         public static void DeleteRight(IProgress<string>? progress)

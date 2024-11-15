@@ -11,7 +11,7 @@ namespace ImgMzx
         public string Extension { get; }
         public DateTime? Taken { get; }
 
-        public ImgPanel(Img img, long size, Image<Rgb24> image, string extension, DateTime? taken, int familysize)
+        public ImgPanel(Img img, long size, Image<Rgb24> image, string extension, DateTime? taken)
         {
             Img = img;
             Size = size;

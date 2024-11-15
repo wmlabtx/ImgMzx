@@ -13,8 +13,6 @@ namespace ImgMzx
         public bool Verified { get; }
         public string Horizon { get; }
         public int Counter { get; }
-        public string Nodes { get; }
-        public string Distance { get; }
 
         public Img(
             string hash,
@@ -25,9 +23,7 @@ namespace ImgMzx
             DateTime lastview,
             bool verified,
             string horizon,
-            int counter,
-            string nodes,
-            string distance
+            int counter
             )
         {
             Hash = hash;
@@ -39,8 +35,6 @@ namespace ImgMzx
             Verified = verified;
             Horizon = horizon;
             Counter = counter;
-            Nodes = nodes;
-            Distance = distance;
         }
     }
 }

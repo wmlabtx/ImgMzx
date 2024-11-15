@@ -82,6 +82,7 @@ namespace ImgMzx
 
             var filename = AppFile.GetFileName(imgX.Name, AppConsts.PathHp);
             DeleteEncryptedFile(filename);
+            AppImgs.UpdateHorizons(hashD);
             AppImgs.Remove(hashD);
             AppImgs.Delete(hashD);
         }

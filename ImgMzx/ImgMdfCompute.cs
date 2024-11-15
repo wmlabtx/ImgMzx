@@ -126,9 +126,7 @@ public static partial class ImgMdf
             lastview: lastview,
             verified: false,
             horizon: string.Empty,
-            counter: 0,
-            nodes: string.Empty,
-            distance: "9999"
+            counter: 0
         );
 
         AppImgs.Save(imgnew);
@@ -245,28 +243,24 @@ public static partial class ImgMdf
         }
         */
 
-        var beam = AppImgs.GetBeam(img);
-        var position = 0;
-        while (position < beam.Count && string.Compare(beam[position], img.Horizon, StringComparison.Ordinal) <= 0) {
-            position++;
-        }
-
-        if (position >= beam.Count) {
-            position = 0;
-        }
-
-        AppHash.GetHorizon(beam, position, out var horizon, out var counter, out var nodes, out var distance);
-        if (counter != img.Counter || !horizon.Equals(img.Horizon) || !nodes.Equals(img.Nodes)) {
-            horizon = string.Empty;
-            counter = 0;
-            nodes = string.Empty;
-             backgroundworker.ReportProgress(0, $"{img.Name}: [{img.Counter}:{img.Distance}] {AppConsts.CharRightArrow} [{counter}:{distance}]");
-            _ = AppImgs.SetHorizonCounterNodesDistance(img.Hash, horizon, counter, nodes, distance);
+        if (img is { Counter: 0, Horizon.Length: > 0 }) {
+            backgroundworker.ReportProgress(0, $"{img.Name}: reset horizon");
+            _ = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
         }
         else {
-            if (!distance.Equals(img.Distance)) {
-                backgroundworker.ReportProgress(0, $"{img.Name}: [{img.Counter}:{img.Distance}] {AppConsts.CharRightArrow} [{counter}:{distance}]");
-                _ = AppImgs.SetHorizonCounterNodesDistance(img.Hash, horizon, counter, nodes, distance);
+            if (img.Counter > 0) {
+                var beam = AppImgs.GetBeam(img);
+                if (img.Counter >= beam.Count) {
+                    backgroundworker.ReportProgress(0, $"{img.Name}: [{img.Counter}] {AppConsts.CharRightArrow} [0]");
+                    _ = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
+                }
+                else {
+                    var horizon = beam[img.Counter - 1];
+                    if (!horizon.Equals(img.Horizon)) {
+                        backgroundworker.ReportProgress(0, $"{img.Name}: [{img.Counter}] {AppConsts.CharRightArrow} [0]");
+                        _ = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
+                    }
+                }
             }
         }
     }
