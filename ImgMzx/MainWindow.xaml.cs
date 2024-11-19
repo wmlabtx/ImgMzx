@@ -112,5 +112,15 @@ namespace ImgMzx
         {
             ReleaseResources();
         }
+
+        private void AddToFamilyClick(object sender, RoutedEventArgs e)
+        {
+            CombineToFamily();
+        }
+
+        private void RemoveFromFamilyClick(object sender, RoutedEventArgs e)
+        {
+            DetachFromFamily();
+        }
     }
 }

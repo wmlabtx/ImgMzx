@@ -29,5 +29,7 @@
         public const string AttributeVerified = "verified";
         public const string AttributeHorizon = "horizon";
         public const string AttributeCounter = "counter";
+        public const string AttributeFamily = "family";
+        public const string AttributeScore = "score";
     }
 }

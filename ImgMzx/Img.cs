@@ -13,6 +13,8 @@ namespace ImgMzx
         public bool Verified { get; }
         public string Horizon { get; }
         public int Counter { get; }
+        public string Family { get; }
+        public int Score { get; }
 
         public Img(
             string hash,
@@ -23,7 +25,9 @@ namespace ImgMzx
             DateTime lastview,
             bool verified,
             string horizon,
-            int counter
+            int counter,
+            string family,
+            int score
             )
         {
             Hash = hash;
@@ -35,6 +39,8 @@ namespace ImgMzx
             Verified = verified;
             Horizon = horizon;
             Counter = counter;
+            Family = family;
+            Score = score;
         }
     }
 }

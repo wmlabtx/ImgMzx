@@ -132,6 +132,15 @@ namespace ImgMzx
                     sb.Append($" [{panels[index].Img.Counter}]");
                 }
 
+                if (panels[index].FamilySize > 1) {
+                    var family_alias = Helper.GetSubstringUpToFirstDifference(panels[index].Img.Family, panels[1 - index].Img.Family);
+                    sb.Append($" [{family_alias}:{panels[index].FamilySize}]");
+                }
+
+                if (panels[index].Img.Score > 0) {
+                    sb.Append($" +{panels[index].Img.Score}");
+                }
+
                 sb.AppendLine();
 
                 sb.Append($"{Helper.SizeToString(panels[index].Size)} ");
@@ -153,8 +162,13 @@ namespace ImgMzx
                     pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
                 }
                 else {
-                    if (panels[index].Img.Counter > 0) {
-                        pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
+                    if (panels[index].Img.Family.Equals(panels[1 - index].Img.Family)) {
+                        pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
+                    }
+                    else {
+                        if (panels[index].Img.Counter > 0) {
+                            pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
+                        }
                     }
                 }
             }
@@ -288,9 +302,31 @@ namespace ImgMzx
             EnableElements();
         }
 
+        private async void CombineToFamily()
+        {
+            DisableElements();
+            await Task.Run(AppPanels.CombineToFamily).ConfigureAwait(true);
+            DrawCanvas();
+            EnableElements();
+        }
+
+        private async void DetachFromFamily()
+        {
+            DisableElements();
+            await Task.Run(AppPanels.DetachFromFamily).ConfigureAwait(true);
+            DrawCanvas();
+            EnableElements();
+        }
+
         private void OnKeyDown(Key key)
         {
             switch (key) {
+                case Key.A:
+                    CombineToFamily();
+                    break;
+                case Key.D:
+                    DetachFromFamily();
+                    break;
                 case Key.V:
                     ToggleXorClick();
                     break; 

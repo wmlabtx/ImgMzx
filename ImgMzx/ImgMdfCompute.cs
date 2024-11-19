@@ -126,7 +126,9 @@ public static partial class ImgMdf
             lastview: lastview,
             verified: false,
             horizon: string.Empty,
-            counter: 0
+            counter: 0,
+            family: hash,
+            score: 0
         );
 
         AppImgs.Save(imgnew);

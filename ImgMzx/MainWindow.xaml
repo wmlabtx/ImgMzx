@@ -33,6 +33,10 @@
                 <MenuItem Header="Move to the first" Click="MoveToTheFirstClick" />
                 <MenuItem Header="Move to the last" Click="MoveToTheLastClick" />
             </MenuItem>
+            <MenuItem Header="Family">
+                <MenuItem Header="Add (A)" Click="AddToFamilyClick" />
+                <MenuItem Header="Remove (D)" Click="RemoveFromFamilyClick" />
+            </MenuItem>
         </Menu>
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBar.ItemsPanel>

@@ -23,6 +23,7 @@ namespace ImgMzx
 
                 if (imgX == null) {
                     imgX = AppImgs.GetForView();
+                    Debug.Assert(imgX != null);
                     hashX = imgX.Hash;
                 }
 
