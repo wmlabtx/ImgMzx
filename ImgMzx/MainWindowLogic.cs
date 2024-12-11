@@ -75,6 +75,11 @@ namespace ImgMzx
             AppVars.ImportRequested = true;
         }
 
+        private void ExportClick()
+        {
+            ImgPanelExport();
+        }
+
         private void PictureLeftBoxMouseClick()
         {
             ImgPanelDeleteLeft();
@@ -128,13 +133,9 @@ namespace ImgMzx
                 pBoxes[index].Source = AppBitmap.GetImageSource(panels[index].Image);
                 var sb = new StringBuilder();
                 sb.Append($"{panels[index].Img.Name}.{panels[index].Extension}");
-                if (panels[index].Img.Counter > 0) {
-                    sb.Append($" [{panels[index].Img.Counter}]");
-                }
-
-                if (panels[index].FamilySize > 1) {
-                    var family_alias = Helper.GetSubstringUpToFirstDifference(panels[index].Img.Family, panels[1 - index].Img.Family);
-                    sb.Append($" [{family_alias}:{panels[index].FamilySize}]");
+                if (panels[index].Img.History.Length > 0) {
+                    var history = panels[index].Img.History.Length > 6 ? $"{panels[index].Img.History[..6]}{AppConsts.CharEllipsis}" : panels[index].Img.History;
+                    sb.Append($" [{history}]");
                 }
 
                 if (panels[index].Img.Score > 0) {
@@ -162,13 +163,8 @@ namespace ImgMzx
                     pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
                 }
                 else {
-                    if (panels[index].Img.Family.Equals(panels[1 - index].Img.Family)) {
-                        pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
-                    }
-                    else {
-                        if (panels[index].Img.Counter > 0) {
-                            pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
-                        }
+                    if (panels[index].Img.History.Length > 0) {
+                        pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
                     }
                 }
             }
@@ -210,6 +206,13 @@ namespace ImgMzx
             await Task.Run(AppPanels.DeleteLeft).ConfigureAwait(true);
             await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
             DrawCanvas();
+            EnableElements();
+        }
+
+        private async void ImgPanelExport()
+        {
+            DisableElements();
+            await Task.Run(() => { AppPanels.Export(AppVars.Progress); }).ConfigureAwait(true);
             EnableElements();
         }
 
@@ -302,31 +305,9 @@ namespace ImgMzx
             EnableElements();
         }
 
-        private async void CombineToFamily()
-        {
-            DisableElements();
-            await Task.Run(AppPanels.CombineToFamily).ConfigureAwait(true);
-            DrawCanvas();
-            EnableElements();
-        }
-
-        private async void DetachFromFamily()
-        {
-            DisableElements();
-            await Task.Run(AppPanels.DetachFromFamily).ConfigureAwait(true);
-            DrawCanvas();
-            EnableElements();
-        }
-
         private void OnKeyDown(Key key)
         {
             switch (key) {
-                case Key.A:
-                    CombineToFamily();
-                    break;
-                case Key.D:
-                    DetachFromFamily();
-                    break;
                 case Key.V:
                     ToggleXorClick();
                     break; 

@@ -1,4 +1,6 @@
-﻿using System.Diagnostics;
+﻿using System.ComponentModel;
+using System.Diagnostics;
+using System.Text;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace ImgMzx;
@@ -69,34 +71,23 @@ public static class AppPanels
         progress?.Report($"Getting vector{AppConsts.CharEllipsis}");
 
         _beam = AppImgs.GetBeam(img);
-        if (img is { Counter: 0, Horizon.Length: > 0 }) {
-            img = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
-        }
-        else {
-            if (img.Counter > 0) {
-                if (img.Counter >= _beam.Count) {
-                    img = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
-                }
-                else {
-                    var horizon = _beam[img.Counter - 1];
-                    if (!horizon.Equals(img.Horizon)) {
-                        img = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
-                    }
-                }
-            }
+        img = Verify(img, _beam, null);
+
+        Debug.Assert(img != null);
+        _position = img.History.Length;
+        if (!_beam[_position].Equals(img.Next)) {
+            progress?.Report($"{img.Name}: reset horizon");
+            img = AppImgs.SetHistoryNext(img.Hash, string.Empty, _beam[_position]);
         }
 
         Debug.Assert(img != null);
-        _position = img.Counter;
 
-        var familysize = AppImgs.GetFamilySize(img.Family);
         var imgpanel = new ImgPanel(
             img: img,
             size: imagedata.LongLength,
             image: image,
             extension: extension,
-            taken: taken,
-            familysize: familysize);
+            taken: taken);
         _imgPanels[0] = imgpanel;
         return true;
     }
@@ -129,14 +120,12 @@ public static class AppPanels
             image = imagexor;
         }
 
-        var familysize = AppImgs.GetFamilySize(img.Family);
         var imgpanel = new ImgPanel(
             img: img,
             size: imagedata.LongLength,
             image: image,
             extension: extension,
-            taken: taken,
-            familysize: familysize);
+            taken: taken);
 
         _imgPanels[1] = imgpanel;
         UpdateStatus(progress);
@@ -186,14 +175,19 @@ public static class AppPanels
         Debug.Assert(imgX != null);
         imgX = AppImgs.SetScore(imgX.Hash, imgX.Score + 1);
         Debug.Assert(imgX != null);
-        var horizon = _beam[_position];
-        var counter = _position + 1;
-        if (counter >= _beam.Count) {
-            horizon = string.Empty;
-            counter = 0;
+
+        var sb = new StringBuilder();
+        for (var i = 0; i <= _position; i++) {
+            sb.Append(_beam[i][4]);
         }
 
-        imgX = AppImgs.SetHorizonCounter(imgX.Hash, horizon, counter);
+        var history = sb.ToString();
+        if (_position + 1 >= _beam.Count) {
+            history = string.Empty;
+        }
+
+        var next = _beam[_position + 1];
+        imgX = AppImgs.SetHistoryNext(imgX.Hash, history, next);
         Debug.Assert(imgX != null);
         if (!imgX.Verified) {
             AppImgs.UpdateVerified(imgX.Hash);
@@ -223,6 +217,13 @@ public static class AppPanels
         }
     }
 
+    public static void Export(IProgress<string>? progress)
+    {
+        progress?.Report($"Exporting{AppConsts.CharEllipsis}");
+        var filename = ImgMdf.Export(_imgPanels[0].Img.Hash);
+        progress?.Report($"Exported to {filename}");
+    }
+
     private static void UpdateStatus(IProgress<string>? progress)
     {
         var imgX = _imgPanels[0].Img;
@@ -230,67 +231,43 @@ public static class AppPanels
         var vdistance = AppVit.GetDistance(imgX.Vector, imgY.Vector);
         var postion = _position;
         var vectorsize = _beam.Count;
-        progress?.Report($"{postion}/{vectorsize} v{vdistance:F4}");
+        var nonzeroscore = AppImgs.NonZeroScore();
+        progress?.Report($"{postion}/{vectorsize} n{nonzeroscore} v{vdistance:F4}");
     }
 
-    private static void UpdateFamiliesOnPanels(Img imgX, Img imgY)
+    public static Img? Verify(Img? img, List<string> beam, BackgroundWorker? backgroundworker)
     {
-        _imgPanels[0].Img = imgX;
-        _imgPanels[0].FamilySize = AppImgs.GetFamilySize(imgX.Family);
-        _imgPanels[1].Img = imgY;
-        _imgPanels[1].FamilySize = AppImgs.GetFamilySize(imgY.Family);
-    }
+        Debug.Assert(img != null);
 
-    public static void CombineToFamily()
-    {
-        var imgX = _imgPanels[0].Img;
-        var imgY = _imgPanels[1].Img;
-        if (imgX.Family.Equals(imgY.Family)) {
-            return;
-        }
+        var next = img.Next;
+        var position = img.History.Length;
+        var history = img.History;
+        if (position > 0) {
+            var sb = new StringBuilder();
+            for (var i = 0; i < position; i++) {
+                sb.Append(beam[i][4]);
+            }
 
-        var sizeX = AppImgs.GetFamilySize(imgX.Family);
-        var sizeY = AppImgs.GetFamilySize(imgY.Family);
-
-        if (sizeX >= sizeY) {
-            AppImgs.RenameFamily(imgY.Family, imgX.Family);
-        }
-        else {
-            AppImgs.RenameFamily(imgX.Family, imgY.Family);
-        }
-
-        if (!AppImgs.TryGet(imgX.Hash, out imgX)) {
-            return;
-        }
-
-        if (!AppImgs.TryGet(imgY.Hash, out imgY)) {
-            return;
-        }
-
-        Debug.Assert(imgX != null);
-        Debug.Assert(imgY != null);
-        UpdateFamiliesOnPanels(imgX, imgY);
-    }
-
-    public static void DetachFromFamily()
-    {
-        var imgX = _imgPanels[0].Img;
-        var imgY = _imgPanels[1].Img;
-        if (!imgY.Family.Equals(imgY.Family)) {
-            return;
-        }
-
-        if (!imgY.Hash.Equals(imgY.Family)) {
-            imgY = AppImgs.SetFamily(imgY.Hash, imgY.Hash);
-        }
-        else {
-            if (!imgX.Hash.Equals(imgX.Family)) {
-                imgX = AppImgs.SetFamily(imgX.Hash, imgX.Hash);
+            history = sb.ToString();
+            if (!history.Equals(img.History)) {
+                position = 0;
+                history = string.Empty;
+                next = beam[0];
             }
         }
 
-        Debug.Assert(imgX != null);
-        Debug.Assert(imgY != null);
-        UpdateFamiliesOnPanels(imgX, imgY);
+        if (!img.Next.Equals(beam[position])) {
+            next = beam[position];
+        }
+
+        Debug.Assert(img != null);
+
+        if (!history.Equals(img.History) || !next.Equals(img.Next)) {
+            var imgnext = img.Next.Length <= 4 ? "0000" : img.Next[..4];
+            backgroundworker?.ReportProgress(0, $"{img.Name}: {imgnext}[{img.History.Length}] {AppConsts.CharRightArrow} {next[..4]}[{position}]");
+            img = AppImgs.SetHistoryNext(img.Hash, history, next);
+        }
+
+        return img;
     }
 }

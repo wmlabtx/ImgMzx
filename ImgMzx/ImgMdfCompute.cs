@@ -1,4 +1,5 @@
-﻿using System.ComponentModel;
+﻿using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using SixLabors.ImageSharp.Processing;
@@ -125,9 +126,8 @@ public static partial class ImgMdf
             flipmode: FlipMode.None,
             lastview: lastview,
             verified: false,
-            horizon: string.Empty,
-            counter: 0,
-            family: hash,
+            history: string.Empty,
+            next: string.Empty,
             score: 0
         );
 
@@ -245,25 +245,7 @@ public static partial class ImgMdf
         }
         */
 
-        if (img is { Counter: 0, Horizon.Length: > 0 }) {
-            backgroundworker.ReportProgress(0, $"{img.Name}: reset horizon");
-            _ = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
-        }
-        else {
-            if (img.Counter > 0) {
-                var beam = AppImgs.GetBeam(img);
-                if (img.Counter >= beam.Count) {
-                    backgroundworker.ReportProgress(0, $"{img.Name}: [{img.Counter}] {AppConsts.CharRightArrow} [0]");
-                    _ = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
-                }
-                else {
-                    var horizon = beam[img.Counter - 1];
-                    if (!horizon.Equals(img.Horizon)) {
-                        backgroundworker.ReportProgress(0, $"{img.Name}: [{img.Counter}] {AppConsts.CharRightArrow} [0]");
-                        _ = AppImgs.SetHorizonCounter(img.Hash, string.Empty, 0);
-                    }
-                }
-            }
-        }
+        var beam = AppImgs.GetBeam(img);
+        _ = AppPanels.Verify(img, beam, backgroundworker);
     }
 }

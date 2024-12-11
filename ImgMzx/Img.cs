@@ -11,9 +11,8 @@ namespace ImgMzx
         public FlipMode FlipMode { get; }
         public DateTime LastView { get; }
         public bool Verified { get; }
-        public string Horizon { get; }
-        public int Counter { get; }
-        public string Family { get; }
+        public string History { get; }
+        public string Next { get; }
         public int Score { get; }
 
         public Img(
@@ -24,9 +23,8 @@ namespace ImgMzx
             FlipMode flipmode,
             DateTime lastview,
             bool verified,
-            string horizon,
-            int counter,
-            string family,
+            string history,
+            string next,
             int score
             )
         {
@@ -37,9 +35,8 @@ namespace ImgMzx
             FlipMode = flipmode;
             LastView = lastview;
             Verified = verified;
-            Horizon = horizon;
-            Counter = counter;
-            Family = family;
+            History = history;
+            Next = next;
             Score = score;
         }
     }

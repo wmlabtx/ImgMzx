@@ -27,9 +27,8 @@
         public const string AttributeFlipMode = "flipmode";
         public const string AttributeLastView = "lastview";
         public const string AttributeVerified = "verified";
-        public const string AttributeHorizon = "horizon";
-        public const string AttributeCounter = "counter";
-        public const string AttributeFamily = "family";
+        public const string AttributeHistory = "history";
+        public const string AttributeNext = "next";
         public const string AttributeScore = "score";
     }
 }

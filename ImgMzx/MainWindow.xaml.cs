@@ -73,6 +73,11 @@ namespace ImgMzx
             ImportClick();
         }
 
+        private void ExportClick(object sender, RoutedEventArgs e)
+        {
+            ExportClick();
+        }
+
         private void RefreshClick(object sender, RoutedEventArgs e)
         {
             RefreshClick();
@@ -111,16 +116,6 @@ namespace ImgMzx
         private void OnClosed(object sender, EventArgs e)
         {
             ReleaseResources();
-        }
-
-        private void AddToFamilyClick(object sender, RoutedEventArgs e)
-        {
-            CombineToFamily();
-        }
-
-        private void RemoveFromFamilyClick(object sender, RoutedEventArgs e)
-        {
-            DetachFromFamily();
         }
     }
 }

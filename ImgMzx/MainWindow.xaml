@@ -10,6 +10,7 @@
         <Menu Name="Menu" DockPanel.Dock="Top">
             <MenuItem Header="File">
                 <MenuItem Header="Import" Click="ImportClick" />
+                <MenuItem Header="Export" Click="ExportClick" />
                 <MenuItem Header="Exit" Click="ExitClick" />
             </MenuItem>
             <MenuItem Header="Edit">
@@ -32,10 +33,6 @@
                 <MenuItem Header="Move left (←)" Click="MoveLeftClick" />
                 <MenuItem Header="Move to the first" Click="MoveToTheFirstClick" />
                 <MenuItem Header="Move to the last" Click="MoveToTheLastClick" />
-            </MenuItem>
-            <MenuItem Header="Family">
-                <MenuItem Header="Add (A)" Click="AddToFamilyClick" />
-                <MenuItem Header="Remove (D)" Click="RemoveFromFamilyClick" />
             </MenuItem>
         </Menu>
         <StatusBar DockPanel.Dock="Bottom">

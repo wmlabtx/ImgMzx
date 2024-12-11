@@ -83,7 +83,7 @@ namespace ImgMzx
 
             var filename = AppFile.GetFileName(imgX.Name, AppConsts.PathHp);
             DeleteEncryptedFile(filename);
-            AppImgs.UpdateHorizons(hashD);
+            AppImgs.UpdateAffectedImages(hashD);
             AppImgs.Remove(hashD);
             AppImgs.Delete(hashD);
         }
@@ -123,6 +123,26 @@ namespace ImgMzx
             }
 
             File.Delete(filename);
+        }
+
+        public static string Export(string hashE)
+        {
+            if (!AppImgs.TryGet(hashE, out var imgX)) {
+                return "ERROR";
+            }
+
+            Debug.Assert(imgX != null);
+            var filename = AppFile.GetFileName(imgX.Name, AppConsts.PathHp);
+            var name = Path.GetFileNameWithoutExtension(filename).ToLower();
+            var array = AppFile.ReadEncryptedFile(filename);
+            if (array != null) {
+                var ext = AppBitmap.GetExtension(array);
+                var recycledName = AppFile.GetRecycledName(name, ext, AppConsts.PathGbProtected, DateTime.Now);
+                AppFile.CreateDirectory(recycledName);
+                File.WriteAllBytes(recycledName, array);
+            }
+
+            return name;
         }
     }
 }
