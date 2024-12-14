@@ -83,26 +83,6 @@ namespace ImgMzx
             RefreshClick();
         }
 
-        private void MoveRightClick(object sender, RoutedEventArgs e)
-        {
-            MoveRight();
-        }
-
-        private void MoveLeftClick(object sender, RoutedEventArgs e)
-        {
-            MoveLeft();
-        }
-
-        private void MoveToTheFirstClick(object sender, RoutedEventArgs e)
-        {
-            MoveToTheFirst();
-        }
-
-        private void MoveToTheLastClick(object sender, RoutedEventArgs e)
-        {
-            MoveToTheLast();
-        }
-
         private void OnKeyDown(object sender, KeyEventArgs e)
         {
             OnKeyDown(e.Key);

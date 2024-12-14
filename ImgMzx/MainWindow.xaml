@@ -28,12 +28,6 @@
                 <MenuItem Header="Flip Vertical" Tag="2" Click="FlipClick" />
                 <Separator  />
             </MenuItem>
-            <MenuItem Header="Navigation">
-                <MenuItem Header="Move right (→)" Click="MoveRightClick" />
-                <MenuItem Header="Move left (←)" Click="MoveLeftClick" />
-                <MenuItem Header="Move to the first" Click="MoveToTheFirstClick" />
-                <MenuItem Header="Move to the last" Click="MoveToTheLastClick" />
-            </MenuItem>
         </Menu>
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBar.ItemsPanel>

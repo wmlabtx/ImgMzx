@@ -11,9 +11,12 @@ namespace ImgMzx
         public FlipMode FlipMode { get; }
         public DateTime LastView { get; }
         public bool Verified { get; }
-        public string History { get; }
         public string Next { get; }
+        public float Distance { get; }
+        public string Confirmed { get; }
         public int Score { get; }
+        public DateTime LastCheck { get; }
+
 
         public Img(
             string hash,
@@ -23,9 +26,11 @@ namespace ImgMzx
             FlipMode flipmode,
             DateTime lastview,
             bool verified,
-            string history,
             string next,
-            int score
+            float distance,
+            string confirmed,
+            int score,
+            DateTime lastcheck
             )
         {
             Hash = hash;
@@ -35,9 +40,11 @@ namespace ImgMzx
             FlipMode = flipmode;
             LastView = lastview;
             Verified = verified;
-            History = history;
             Next = next;
+            Distance = distance;
+            Confirmed = confirmed;
             Score = score;
+            LastCheck = lastcheck;
         }
     }
 }

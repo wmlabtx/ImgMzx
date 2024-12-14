@@ -23,10 +23,13 @@ namespace ImgMzx
 
                 if (imgX == null) {
                     imgX = AppImgs.GetForView();
-                    Debug.Assert(imgX != null);
-                    hashX = imgX.Hash;
+                    if (imgX == null) {
+                        progress?.Report($"totalcount = {totalcount}");
+                        return;
+                    }
                 }
 
+                hashX = imgX.Hash;
                 Debug.Assert(hashX != null);
                 if (!AppPanels.SetLeftPanel(hashX, progress)) {
                     Delete(hashX);
@@ -34,7 +37,7 @@ namespace ImgMzx
                     continue;
                 }
 
-                var hashY = AppPanels.GetRight();
+                var hashY = imgX.Next;
                 if (!AppPanels.SetRightPanel(hashY, progress)) {
                     Delete(hashY);
                     hashX = null;
@@ -83,7 +86,6 @@ namespace ImgMzx
 
             var filename = AppFile.GetFileName(imgX.Name, AppConsts.PathHp);
             DeleteEncryptedFile(filename);
-            AppImgs.UpdateAffectedImages(hashD);
             AppImgs.Remove(hashD);
             AppImgs.Delete(hashD);
         }

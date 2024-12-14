@@ -27,8 +27,10 @@
         public const string AttributeFlipMode = "flipmode";
         public const string AttributeLastView = "lastview";
         public const string AttributeVerified = "verified";
-        public const string AttributeHistory = "history";
+        public const string AttributeDistance = "distance";
         public const string AttributeNext = "next";
+        public const string AttributeConfirmed = "confirmed";
         public const string AttributeScore = "score";
+        public const string AttributeLastCheck = "lastcheck";
     }
 }

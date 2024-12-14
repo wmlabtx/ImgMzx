@@ -122,48 +122,48 @@ namespace ImgMzx
             LabelRight.IsEnabled = enabled;
         }
 
-        private void  DrawCanvas()
+        private void DrawCanvas()
         {
-            var panels = new ImgPanel[2];
+            var panels = new ImgPanel?[2];
             panels[0] = AppPanels.GetImgPanel(0);
             panels[1] = AppPanels.GetImgPanel(1);
+            if (panels[0] == null || panels[1] == null) {
+                return;
+            }
+
             var pBoxes = new[] { BoxLeft, BoxRight };
             var pLabels = new[] { LabelLeft, LabelRight };
             for (var index = 0; index < 2; index++) {
-                pBoxes[index].Source = AppBitmap.GetImageSource(panels[index].Image);
+                pBoxes[index].Source = AppBitmap.GetImageSource(panels[index]!.Image);
                 var sb = new StringBuilder();
-                sb.Append($"{panels[index].Img.Name}.{panels[index].Extension}");
-                if (panels[index].Img.History.Length > 0) {
-                    var history = panels[index].Img.History.Length > 6 ? $"{panels[index].Img.History[..6]}{AppConsts.CharEllipsis}" : panels[index].Img.History;
-                    sb.Append($" [{history}]");
-                }
+                sb.Append($"{panels[index]!.Img.Name}.{panels[index]!.Extension}");
 
-                if (panels[index].Img.Score > 0) {
-                    sb.Append($" +{panels[index].Img.Score}");
+                if (panels[index]!.Img.Score > 0) {
+                    sb.Append($" +{panels[index]!.Img.Score}");
                 }
 
                 sb.AppendLine();
 
-                sb.Append($"{Helper.SizeToString(panels[index].Size)} ");
-                sb.Append($" ({panels[index].Image.Width}x{panels[index].Image.Height})");
+                sb.Append($"{Helper.SizeToString(panels[index]!.Size)} ");
+                sb.Append($" ({panels[index]!.Image.Width}x{panels[index]!.Image.Height})");
                 sb.AppendLine();
 
-                sb.Append($" {Helper.TimeIntervalToString(DateTime.Now.Subtract(panels[index].Img.LastView))} ago ");
-                var dateTime = panels[index].Taken;
+                sb.Append($" {Helper.TimeIntervalToString(DateTime.Now.Subtract(panels[index]!.Img.LastView))} ago ");
+                var dateTime = panels[index]!.Taken;
                 if (dateTime != null) {
                     sb.Append($" [{dateTime.Value.ToShortDateString()}]");
                 }
 
-                var meta = AppBitmap.GetMeta(panels[index].Image);
+                var meta = AppBitmap.GetMeta(panels[index]!.Image);
                 sb.Append($" {meta}");
 
                 pLabels[index].Text = sb.ToString();
                 pLabels[index].Background = System.Windows.Media.Brushes.White;
-                if (!panels[index].Img.Verified) {
+                if (!panels[index]!.Img.Verified) {
                     pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
                 }
                 else {
-                    if (panels[index].Img.History.Length > 0) {
+                    if (panels[index]!.Img.Confirmed.Length > 0) {
                         pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
                     }
                 }
@@ -178,7 +178,7 @@ namespace ImgMzx
             var hs = new double[2];
             for (var index = 0; index < 2; index++) {
                 var panel = AppPanels.GetImgPanel(index);
-                ws[index] = panel.Image.Width;
+                ws[index] = panel!.Image.Width;
                 hs[index] = panel.Image.Height;
             }
 
@@ -220,6 +220,7 @@ namespace ImgMzx
         {
             DisableElements();
             await Task.Run(() => { AppPanels.DeleteRight(AppVars.Progress); }).ConfigureAwait(true);
+            await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
             DrawCanvas();
             EnableElements();
         }
@@ -227,7 +228,7 @@ namespace ImgMzx
         private async void RotateClick(RotateMode rotatemode)
         {
             DisableElements();
-            var img = AppPanels.GetImgPanel(0).Img;
+            var img = AppPanels.GetImgPanel(0)!.Img;
             await Task.Run(() => { ImgMdf.Rotate(img.Hash, rotatemode, img.FlipMode); }).ConfigureAwait(true);
             await Task.Run(() => { ImgMdf.Find(img.Hash, AppVars.Progress); }).ConfigureAwait(true);
             DrawCanvas();
@@ -237,7 +238,7 @@ namespace ImgMzx
         private async void FlipClick(FlipMode flipmode)
         {
             DisableElements();
-            var img = AppPanels.GetImgPanel(0).Img;
+            var img = AppPanels.GetImgPanel(0)!.Img;
             await Task.Run(() => { ImgMdf.Rotate(img.Hash, img.RotateMode, flipmode); }).ConfigureAwait(true);
             await Task.Run(() => { ImgMdf.Find(img.Hash, AppVars.Progress); }).ConfigureAwait(true);
             DrawCanvas();
@@ -273,50 +274,12 @@ namespace ImgMzx
             EnableElements();
         }
 
-        private void MoveRight()
-        {
-            DisableElements();
-            AppPanels.MoveRight(AppVars.Progress);
-            DrawCanvas();
-            EnableElements();
-        }
-
-        private void MoveLeft()
-        {
-            DisableElements();
-            AppPanels.MoveLeft(AppVars.Progress);
-            DrawCanvas();
-            EnableElements();
-        }
-
-        private void MoveToTheFirst()
-        {
-            DisableElements();
-            AppPanels.MoveToTheFirst(AppVars.Progress);
-            DrawCanvas();
-            EnableElements();
-        }
-
-        private void MoveToTheLast()
-        {
-            DisableElements();
-            AppPanels.MoveToTheLast(AppVars.Progress);
-            DrawCanvas();
-            EnableElements();
-        }
-
         private void OnKeyDown(Key key)
         {
             switch (key) {
                 case Key.V:
                     ToggleXorClick();
                     break; 
-                case Key.Left: 
-                    MoveLeft();
-                    break;
-                case Key.Right:
-                    MoveRight();
-                    break;
             }
         }
 
