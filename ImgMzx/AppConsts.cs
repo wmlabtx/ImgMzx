@@ -10,7 +10,7 @@
         public const string PathGbProtected = @"M:\removed";
         public const string PathRawProtected = @"M:\raw";
 
-        public const int MaxImportFiles = 1000000;
+        public const int MaxImportFiles = 100;
 
         public const char CharEllipsis = '\u2026';
         public const char CharRightArrow = '\u2192';
@@ -29,8 +29,14 @@
         public const string AttributeVerified = "verified";
         public const string AttributeDistance = "distance";
         public const string AttributeNext = "next";
-        public const string AttributeConfirmed = "confirmed";
         public const string AttributeScore = "score";
         public const string AttributeLastCheck = "lastcheck";
+        
+        public const string TablePairs = "pairs";
+        public const string AttributeHashX = "hashx";
+        public const string AttributeHashY = "hashy";
+
+        public const string TableVars = "vars";
+        public const string AttributeMaxImages = "maximages";
     }
 }

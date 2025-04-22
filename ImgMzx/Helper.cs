@@ -82,16 +82,5 @@ namespace ImgMzx
             Buffer.BlockCopy(buffer, 0, array, 0, buffer.Length);
             return array;
         }
-
-        public static string GetSubstringUpToFirstDifference(string str1, string str2)
-        {
-            for (var i = 0; i < str1.Length; i++) {
-                if (str1[i] != str2[i]) {
-                    return str1[..(i + 1)];
-                }
-            }
-
-            return str1[..4];
-        }
     }
 }

@@ -17,7 +17,7 @@ namespace ImgMzx
                 }
 
                 if (!string.IsNullOrEmpty(hashX) && !AppImgs.TryGet(hashX, out imgX)) {
-                    hashX = null;
+                    //hashX = null;
                     imgX = null;
                 }
 
@@ -78,6 +78,8 @@ namespace ImgMzx
 
         public static void Delete(string hashD)
         {
+            AppImgs.DeleteHistory(hashD);
+
             if (!AppImgs.TryGet(hashD, out var imgX)) {
                 return;
             }

@@ -13,10 +13,10 @@ namespace ImgMzx
         public bool Verified { get; }
         public string Next { get; }
         public float Distance { get; }
-        public string Confirmed { get; }
         public int Score { get; }
         public DateTime LastCheck { get; }
 
+        public float VectorHash { get; }
 
         public Img(
             string hash,
@@ -28,7 +28,6 @@ namespace ImgMzx
             bool verified,
             string next,
             float distance,
-            string confirmed,
             int score,
             DateTime lastcheck
             )
@@ -42,9 +41,10 @@ namespace ImgMzx
             Verified = verified;
             Next = next;
             Distance = distance;
-            Confirmed = confirmed;
             Score = score;
             LastCheck = lastcheck;
+
+            VectorHash = AppVit.GetDeviation(Vector);
         }
     }
 }

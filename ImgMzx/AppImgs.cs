@@ -1,6 +1,5 @@
 ﻿using Microsoft.Data.Sqlite;
 using System.Data;
-using System.Diagnostics;
 using System.Text;
 using SixLabors.ImageSharp.Processing;
 
@@ -12,6 +11,8 @@ namespace ImgMzx
         private static SqliteConnection _sqlConnection = new();
         private static readonly SortedList<string, Img> _imgList = new(); // hash/img
         private static readonly SortedList<string, string> _nameList = new(); // name/hash
+
+        public static string Status { get; private set; } = string.Empty;
 
         private static string GetSelect()
         {
@@ -26,9 +27,8 @@ namespace ImgMzx
             sb.Append($"{AppConsts.AttributeVerified},"); // 6
             sb.Append($"{AppConsts.AttributeNext},"); // 7
             sb.Append($"{AppConsts.AttributeDistance},"); // 8
-            sb.Append($"{AppConsts.AttributeConfirmed},"); // 9
-            sb.Append($"{AppConsts.AttributeScore},"); // 10
-            sb.Append($"{AppConsts.AttributeLastCheck}"); // 11
+            sb.Append($"{AppConsts.AttributeScore},"); // 9
+            sb.Append($"{AppConsts.AttributeLastCheck}"); // 10
             return sb.ToString();
         }
 
@@ -43,9 +43,8 @@ namespace ImgMzx
             var verified = reader.GetBoolean(6);
             var next = reader.GetString(7);
             var distance = reader.GetFloat(8);
-            var confirmed = reader.GetString(9);
-            var score = (int)reader.GetInt64(10);
-            var lastcheck = DateTime.FromBinary(reader.GetInt64(11));
+            var score = (int)reader.GetInt64(9);
+            var lastcheck = DateTime.FromBinary(reader.GetInt64(10));
 
             var img = new Img(
                 hash: hash,
@@ -57,12 +56,55 @@ namespace ImgMzx
                 verified: verified,
                 next: next,
                 distance: distance,
-                confirmed: confirmed,
                 score: score,
                 lastcheck: lastcheck
             );
 
             return img;
+        }
+
+        private static void LoadNamesAndVectors(IProgress<string>? progress)
+        {
+            var sb = new StringBuilder(GetSelect());
+            sb.Append($" FROM {AppConsts.TableImages};");
+            using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
+            using var reader = sqlCommand.ExecuteReader();
+            if (!reader.HasRows) {
+                return;
+            }
+
+            var dtn = DateTime.Now;
+            while (reader.Read()) {
+                var img = Get(reader);
+                Add(img);
+                if (!(DateTime.Now.Subtract(dtn).TotalMilliseconds > AppConsts.TimeLapse)) {
+                    continue;
+                }
+
+                dtn = DateTime.Now;
+                var count = AppImgs.Count();
+                progress?.Report($"Loading names and vectors ({count}){AppConsts.CharEllipsis}");
+            }
+        }
+
+        private static void LoadVars(IProgress<string>? progress)
+        {
+            progress?.Report($"Loading vars{AppConsts.CharEllipsis}");
+
+            var sb = new StringBuilder();
+            sb.Append("SELECT ");
+            sb.Append($"{AppConsts.AttributeMaxImages}"); // 0
+            sb.Append($" FROM {AppConsts.TableVars};");
+            using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
+            using var reader = sqlCommand.ExecuteReader();
+            if (!reader.HasRows) {
+                return;
+            }
+
+            while (reader.Read()) {
+                AppVars.MaxImages = reader.GetInt32(0);
+                break;
+            }
         }
 
         public static void Load(string filedatabase, IProgress<string>? progress)
@@ -74,26 +116,8 @@ namespace ImgMzx
                 _sqlConnection = new SqliteConnection(connectionString);
                 _sqlConnection.Open();
 
-                var sb = new StringBuilder(GetSelect());
-                sb.Append($" FROM {AppConsts.TableImages};");
-                using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
-                using var reader = sqlCommand.ExecuteReader();
-                if (!reader.HasRows) {
-                    return;
-                }
-
-                var dtn = DateTime.Now;
-                while (reader.Read()) {
-                    var img = Get(reader);
-                    Add(img);
-                    if (!(DateTime.Now.Subtract(dtn).TotalMilliseconds > AppConsts.TimeLapse)) {
-                        continue;
-                    }
-
-                    dtn = DateTime.Now;
-                    var count = AppImgs.Count();
-                    progress?.Report($"Loading names and vectors ({count}){AppConsts.CharEllipsis}");
-                }
+                LoadNamesAndVectors(progress);
+                LoadVars(progress);
             }
         }
 
@@ -101,7 +125,8 @@ namespace ImgMzx
         {
             lock (_lock) {
                 var sb = new StringBuilder(GetSelect());
-                sb.Append($" FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}");
+                sb.Append(
+                    $" FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}");
                 using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
                 using var reader = sqlCommand.ExecuteReader();
@@ -130,7 +155,6 @@ namespace ImgMzx
                     sb.Append($"{AppConsts.AttributeVerified},");
                     sb.Append($"{AppConsts.AttributeNext},");
                     sb.Append($"{AppConsts.AttributeDistance},");
-                    sb.Append($"{AppConsts.AttributeConfirmed},");
                     sb.Append($"{AppConsts.AttributeScore},");
                     sb.Append($"{AppConsts.AttributeLastCheck}");
                     sb.Append(") VALUES (");
@@ -143,21 +167,20 @@ namespace ImgMzx
                     sb.Append($"@{AppConsts.AttributeVerified},");
                     sb.Append($"@{AppConsts.AttributeNext},");
                     sb.Append($"@{AppConsts.AttributeDistance},");
-                    sb.Append($"@{AppConsts.AttributeConfirmed},");
                     sb.Append($"@{AppConsts.AttributeScore},");
                     sb.Append($"@{AppConsts.AttributeLastCheck}");
                     sb.Append(')');
                     sqlCommand.CommandText = sb.ToString();
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeName}", img.Name);
-                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", Helper.ArrayFromFloat(img.Vector));
+                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}",
+                        Helper.ArrayFromFloat(img.Vector));
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRotateMode}", (int)img.RotateMode);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFlipMode}", (int)img.FlipMode);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastView}", img.LastView.Ticks);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVerified}", img.Verified);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeNext}", img.Next);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
-                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeConfirmed}", img.Confirmed);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeScore}", img.Score);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.LastCheck.Ticks);
                     sqlCommand.ExecuteNonQuery();
@@ -181,27 +204,11 @@ namespace ImgMzx
             return count;
         }
 
-        public static int NonZeroScore()
-        {
-            int count;
-            lock (_lock) {
-                if (_imgList.Count != _nameList.Count) {
-                    throw new Exception();
-                }
-
-                count = _imgList.Count(e => e.Value.Confirmed.Length > 0);
-            }
-
-            return count;
-        }
-
         private static bool ContainsKey(string key)
         {
             bool result;
             lock (_lock) {
-                result = key.Length >= 32 ? 
-                    _imgList.ContainsKey(key) : 
-                    _nameList.ContainsKey(key);
+                result = key.Length >= 32 ? _imgList.ContainsKey(key) : _nameList.ContainsKey(key);
             }
 
             return result;
@@ -271,7 +278,7 @@ namespace ImgMzx
                         if (img != null) {
                             _imgList.Remove(img.Hash);
                         }
-                        
+
                         _nameList.Remove(key);
                     }
                 }
@@ -309,7 +316,8 @@ namespace ImgMzx
             }
         }
 
-        public static Img? SetVectorFacesOrientation(string hash, float[] vector, RotateMode rotatemode, FlipMode flipmode)
+        public static Img? SetVectorFacesOrientation(string hash, float[] vector, RotateMode rotatemode,
+            FlipMode flipmode)
         {
             lock (_lock) {
                 var sb = new StringBuilder();
@@ -343,16 +351,6 @@ namespace ImgMzx
             return ImgUpdateProperty(hash, AppConsts.AttributeLastCheck, DateTime.Now.Ticks);
         }
 
-        public static Img? UpdateConfirmed(string hash)
-        {
-            if (!TryGet(hash, out var img)) {
-                return null;
-            }
-
-            Debug.Assert(img != null);
-            return ImgUpdateProperty(hash, AppConsts.AttributeConfirmed, img.Next);
-        }
-
         public static Img? UpdateVerified(string hash)
         {
             return ImgUpdateProperty(hash, AppConsts.AttributeVerified, true);
@@ -369,8 +367,7 @@ namespace ImgMzx
                 var sb = new StringBuilder();
                 sb.Append($"UPDATE {AppConsts.TableImages} SET ");
                 sb.Append($"{AppConsts.AttributeNext} = @{AppConsts.AttributeNext},");
-                sb.Append($"{AppConsts.AttributeDistance} = @{AppConsts.AttributeDistance},");
-                sb.Append($"{AppConsts.AttributeConfirmed} = @{AppConsts.AttributeConfirmed} ");
+                sb.Append($"{AppConsts.AttributeDistance} = @{AppConsts.AttributeDistance} ");
                 sb.Append($"WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}");
 
                 using (var sqlCommand = _sqlConnection.CreateCommand()) {
@@ -378,7 +375,6 @@ namespace ImgMzx
                     sqlCommand.CommandText = sb.ToString();
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeNext}", next);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", distance);
-                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeConfirmed}", string.Empty);
                     sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
                     sqlCommand.ExecuteNonQuery();
                 }
@@ -389,24 +385,72 @@ namespace ImgMzx
 
         public static Img? GetForView()
         {
+            var list = new List<Tuple<string, bool, int, int>>();
             lock (_lock) {
-                var scope = _imgList
-                    .Values
-                    .OrderBy(e => e.Confirmed.Length)
-                    .ThenBy(e => e.Distance)
-                    .ToArray();
-
-                foreach (var img in scope) {
-                    if (_imgList.ContainsKey(img.Next)) {
-                        return img;
+                foreach (var img in _imgList.Values) {
+                    if (!_imgList.TryGetValue(img.Next, out var imgnext)) {
+                        continue;
                     }
-                }
 
+                    list.Add(Tuple.Create(img.Name, img.Verified, img.Score, imgnext.Score));
+                }
+            }
+
+            var groupedData = list
+                .GroupBy(x => new { x.Item2, x.Item3, x.Item4 })
+                .OrderBy(g => g.Key.Item2)
+                .ThenBy(g => g.Key.Item3)
+                .ThenBy(g => g.Key.Item4)
+                .Select(g => new {
+                    GroupKey = g.Key,
+                    OrderedItems = g.OrderBy(x => x.Item1).ToList()
+                })
+                .ToArray();
+
+            if (!groupedData.Any()) {
                 return null;
             }
+
+            var groupid = 0;
+            while (groupid < groupedData.Length && AppVars.RandomNext(2) == 0) {
+                groupid++;
+            }
+
+            if (groupid >= groupedData.Length) {
+                groupid = groupedData.Length - 1;
+            }
+
+            var group = groupedData[groupid].OrderedItems;
+            var randomid = AppVars.RandomNext(group.Count);
+            var nameX = group[randomid].Item1;
+            if (!TryGetByName(nameX, out var imgX)) {
+                return null;
+            }
+
+            var sb = new StringBuilder();
+            for (var i = 0; i < 3; i++) {
+                if(i >= groupedData.Length) {
+                    break;
+                }
+
+                if (i > 0) {
+                    sb.Append("/");
+                }
+
+                sb.Append(groupedData[i].OrderedItems.Count);
+            }
+
+            sb.Append($"/{AppConsts.CharEllipsis}/");
+            lock (_lock) {
+                var diff = _imgList.Count - AppVars.MaxImages;
+                sb.Append($"{_imgList.Count} ({diff})");
+            }
+
+            Status = sb.ToString();
+            return imgX;
         }
 
-        public static Img? GetForCheck()
+        public static Img GetForCheck()
         {
             lock (_lock) {
                 foreach (var img in _imgList.Values) {
@@ -416,24 +460,29 @@ namespace ImgMzx
                 }
 
                 return _imgList
-                    .Values
-                    .MinBy(e => e.LastCheck);
+                    .MinBy(e => e.Value.LastCheck)
+                    .Value;
             }
         }
 
         public static Tuple<Img, float>[] GetBeam(Img img)
         {
-            Img[] shadow;
+            List<Img> shadow;
             lock (_lock) {
-                shadow = _imgList.Values.ToArray();
+                shadow = _imgList.Values.ToList();
+                var imgD = shadow.FirstOrDefault(e => e.Hash.Equals(img.Hash));
+                if (imgD != null) {
+                    shadow.Remove(imgD);
+                }
+                else {
+                    return Array.Empty<Tuple<Img, float>>();
+                }
             }
 
-            var distances = new float[shadow.Length];
+            var distances = new float[shadow.Count];
             var vx = img.Vector;
-            Parallel.For(0, distances.Length, i => {
-                distances[i] = AppVit.GetDistance(vx, shadow[i].Vector);
-            });
-            
+            Parallel.For(0, distances.Length, i => { distances[i] = AppVit.GetDistance(vx, shadow[i].Vector); });
+
             var beam = shadow
                 .Zip(distances, Tuple.Create)
                 .OrderBy(t => t.Item2)
@@ -446,6 +495,68 @@ namespace ImgMzx
         {
             lock (_lock) {
                 return _imgList.Min(e => e.Value.LastView).AddSeconds(-1);
+            }
+        }
+
+        public static void AddHistory(string hashx, string hashy)
+        {
+            const string commandtext =
+                $"INSERT INTO {AppConsts.TablePairs} ({AppConsts.AttributeHashX}, {AppConsts.AttributeHashY}) VALUES (@{AppConsts.AttributeHashX}, @{AppConsts.AttributeHashY})";
+            lock (_lock) {
+                lock (_lock) {
+                    using var sqlCommand = _sqlConnection.CreateCommand();
+                    sqlCommand.Connection = _sqlConnection;
+                    sqlCommand.CommandText = commandtext;
+                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHashX}", hashx);
+                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHashY}", hashy);
+                    sqlCommand.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public static SortedSet<string> GetHistory(string hashX)
+        {
+            var set = new SortedSet<string>();
+            const string commandtext =
+                $"SELECT {AppConsts.AttributeHashY} FROM {AppConsts.TablePairs} WHERE {AppConsts.AttributeHashX} = @{AppConsts.AttributeHashX}";
+            lock (_lock) {
+                using var sqlCommand = new SqliteCommand(commandtext, _sqlConnection);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHashX}", hashX);
+                using var reader = sqlCommand.ExecuteReader();
+                while (reader.Read()) {
+                    var hashy = reader.GetString(0);
+                    set.Add(hashy);
+                }
+            }
+
+            return set;
+        }
+                                                                
+        public static void DeleteHistory(string hash)
+        {
+            const string commandtext =
+                $"DELETE FROM {AppConsts.TablePairs} WHERE {AppConsts.AttributeHashX} = @{AppConsts.AttributeHash} OR {AppConsts.AttributeHashY} = @{AppConsts.AttributeHash}";
+            lock (_lock) {
+                lock (_lock) {
+                    using var sqlCommand = _sqlConnection.CreateCommand();
+                    sqlCommand.Connection = _sqlConnection;
+                    sqlCommand.CommandText = commandtext;
+                    sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
+                    sqlCommand.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public static void UpdateMaxImages()
+        {
+            lock (_lock) {
+                AppVars.MaxImages = (int)Math.Round(AppVars.MaxImages * 0.9996);
+                using var sqlCommand = _sqlConnection.CreateCommand();
+                sqlCommand.Connection = _sqlConnection;
+                sqlCommand.CommandText =
+                    $"UPDATE {AppConsts.TableVars} SET {AppConsts.AttributeMaxImages} = @{AppConsts.AttributeMaxImages}";
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeMaxImages}", AppVars.MaxImages);
+                sqlCommand.ExecuteNonQuery();
             }
         }
     }

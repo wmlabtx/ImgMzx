@@ -142,6 +142,11 @@ namespace ImgMzx
                     sb.Append($" +{panels[index]!.Img.Score}");
                 }
 
+                var history = AppImgs.GetHistory(panels[index]!.Img.Hash);
+                if (history.Count > 0) {
+                    sb.Append($" [{history.Count}]");
+                }
+
                 sb.AppendLine();
 
                 sb.Append($"{Helper.SizeToString(panels[index]!.Size)} ");
@@ -163,7 +168,7 @@ namespace ImgMzx
                     pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
                 }
                 else {
-                    if (panels[index]!.Img.Confirmed.Length > 0) {
+                    if (history.Count > 0) {
                         pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
                     }
                 }

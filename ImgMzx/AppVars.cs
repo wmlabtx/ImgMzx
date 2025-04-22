@@ -31,6 +31,36 @@ namespace ImgMzx
             return result;
         }
 
+        private static double RandomDouble()
+        {
+            double result;
+            if (Monitor.TryEnter(_random, AppConsts.LockTimeout)) {
+                try {
+                    var buffer = new byte[8];
+                    _random.GetBytes(buffer);
+                    var rulong = BitConverter.ToUInt64(buffer, 0);
+                    result = rulong / (double)ulong.MaxValue;
+                }
+                finally {
+                    Monitor.Exit(_random);
+                }
+            }
+            else {
+                throw new Exception();
+            }
+
+            return result;
+        }
+
+        public static int GetRandomIndex(int maxValue)
+        {
+            var max = maxValue - 10;
+            var randomValue = RandomDouble();
+            var base10 = Math.Pow(10, 1.0/3000);
+            var index = (int)(Math.Log(1 - randomValue * (1 - Math.Pow(base10, -max))) / -Math.Log(base10)) + 10;
+            return index;
+        }
+
         public static byte[] RandomBuffer(int length)
         {
             byte[] buffer;
@@ -49,5 +79,7 @@ namespace ImgMzx
 
             return buffer;
         }
+
+        public static int MaxImages { get; set; }
     }
 }

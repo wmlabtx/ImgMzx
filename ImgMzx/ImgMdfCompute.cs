@@ -1,8 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
-using System.Xml.Linq;
 using SixLabors.ImageSharp.Processing;
 
 namespace ImgMzx;
@@ -129,7 +127,6 @@ public static partial class ImgMdf
             verified: false,
             next: string.Empty,
             distance: 2f,
-            confirmed: string.Empty,
             score: 0,
             lastcheck: lastview
         );
@@ -168,6 +165,7 @@ public static partial class ImgMdf
     private static void Compute(BackgroundWorker backgroundworker)
     {
         if (AppVars.ImportRequested) {
+            AppImgs.UpdateMaxImages();
             var lastview = AppImgs.GetMinimalLastView();
             _added = 0;
             _found = 0;
@@ -228,7 +226,6 @@ public static partial class ImgMdf
                     verified: img.Verified,
                     next: string.Empty,
                     distance: 2f,
-                    confirmed: string.Empty,
                     score: img.Score,
                     lastcheck: img.LastCheck
                 );
@@ -246,7 +243,20 @@ public static partial class ImgMdf
         }
 
         var beam = AppImgs.GetBeam(img);
-        var index = Array.FindIndex(beam, t => !t.Item1.Hash.Equals(img.Hash));
+        var history = AppImgs.GetHistory(img.Hash);
+        var historycount = history.Count;
+        foreach (var h in history) {
+            if (!AppImgs.TryGet(h, out _)) {
+                AppImgs.DeleteHistory(h);
+                historycount--;
+            }
+        }
+
+        if (historycount < history.Count) {
+            history = AppImgs.GetHistory(img.Hash);
+        }
+
+        var index = Array.FindIndex(beam, t => !history.Contains(t.Item1.Hash));
         var next = beam[index].Item1.Hash;
         var distance = beam[index].Item2;
         var olddistance = img.Distance;
@@ -257,17 +267,8 @@ public static partial class ImgMdf
             img = AppImgs.SetNextDistance(img.Hash, next, distance);
         }
 
-        Debug.Assert(img != null);
-        img = AppImgs.UpdateLastCheck(img.Hash);
-        Debug.Assert(img != null);
-
-        var affected = beam
-            .Where(b => !b.Item1.Hash.Equals(hash) && (b.Item1.Next.Length == 0 || b.Item2 < b.Item1.Distance))
-            .ToArray();
-        for (var i = 0; i < affected.Length; i++) {
-            Debug.Assert(!affected[i].Item1.Hash.Equals(hash));
-            backgroundworker?.ReportProgress(0, $"{i + 1}/{affected.Length} [{lastcheck} ago] {img.Name}: {olddistance:F4} {AppConsts.CharRightArrow} {distance:F4}");
-            _ = AppImgs.SetNextDistance(affected[i].Item1.Hash, hash, affected[i].Item2);
+        if (img != null) {
+            _ = AppImgs.UpdateLastCheck(img.Hash);
         }
     }
 }

@@ -70,6 +70,7 @@ public static class AppPanels
             extension: extension,
             taken: taken);
         _imgPanels[0] = imgpanel;
+
         return true;
     }
 
@@ -115,28 +116,46 @@ public static class AppPanels
 
     public static void Confirm()
     {
-        var imgY = AppImgs.UpdateLastView(_imgPanels[1]!.Img.Hash);
-        imgY = AppImgs.SetScore(_imgPanels[1]!.Img.Hash, _imgPanels[1]!.Img.Score + 1);
+        var hashX = _imgPanels[0]!.Img.Hash;
+        var hashY = _imgPanels[1]!.Img.Hash;
+        if (AppImgs.TryGet(hashX, out var imgX) && AppImgs.TryGet(hashY, out var imgY)) {
+            imgY = AppImgs.UpdateLastView(hashY);
+            Debug.Assert(imgY != null);
+            _ = AppImgs.SetScore(hashY, imgY.Score + 1);
 
-        var imgX = AppImgs.UpdateLastView(_imgPanels[0]!.Img.Hash);
-        imgX = AppImgs.UpdateConfirmed(_imgPanels[0]!.Img.Hash);
-        imgX = AppImgs.SetScore(_imgPanels[0]!.Img.Hash, _imgPanels[0]!.Img.Score + 1);
-        if (imgX is { Verified: false }) {
-            AppImgs.UpdateVerified(imgX.Hash);
-        }
+            imgX = AppImgs.UpdateLastView(hashX);
+            Debug.Assert(imgX != null);
+            imgX = AppImgs.SetScore(hashX, imgX.Score + 1);
+            Debug.Assert(imgX != null);
+            if (!imgX.Verified) {
+                imgX = AppImgs.UpdateVerified(hashX);
+            }
 
-        if (imgX != null && imgY != null && imgY.Next.Equals(imgX.Hash)) {
-            AppImgs.UpdateConfirmed(_imgPanels[1]!.Img.Hash);
+            var history = AppImgs.GetHistory(hashX);
+            if (!history.Contains(hashY)) {
+                AppImgs.AddHistory(hashX, hashY);
+            }
+
+            Debug.Assert(imgX != null);
+            AppImgs.SetNextDistance(hashX, string.Empty, imgX.Distance);
         }
     }
 
     public static void DeleteLeft()
     {
+        var hashY = _imgPanels[1]!.Img.Hash;
+        var imgY = AppImgs.UpdateLastView(hashY);
+        Debug.Assert(imgY != null);
+        _ = AppImgs.SetScore(hashY, imgY.Score + 1);
         ImgMdf.Delete(_imgPanels[0]!.Img.Hash);
     }
 
     public static void DeleteRight(IProgress<string>? progress)
     {
+        var hashX = _imgPanels[0]!.Img.Hash;
+        var imgX = AppImgs.UpdateLastView(hashX);
+        Debug.Assert(imgX != null);
+        _ = AppImgs.SetScore(hashX, imgX.Score + 1);
         ImgMdf.Delete(_imgPanels[1]!.Img.Hash);
     }
 
@@ -149,9 +168,6 @@ public static class AppPanels
 
     private static void UpdateStatus(IProgress<string>? progress)
     {
-        var imgX = _imgPanels[0]!.Img;
-        var nonzeroscore = AppImgs.NonZeroScore();
-        var total = AppImgs.Count();
-        progress?.Report($"{nonzeroscore}/{total} v{imgX.Distance:F4}");
+        progress?.Report(AppImgs.Status);
     }
 }
