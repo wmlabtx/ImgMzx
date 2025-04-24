@@ -11,6 +11,7 @@ namespace ImgMzx
         private static SqliteConnection _sqlConnection = new();
         private static readonly SortedList<string, Img> _imgList = new(); // hash/img
         private static readonly SortedList<string, string> _nameList = new(); // name/hash
+        private static readonly List<float[]> _history = new();
 
         public static string Status { get; private set; } = string.Empty;
 
@@ -385,22 +386,21 @@ namespace ImgMzx
 
         public static Img? GetForView()
         {
-            var list = new List<Tuple<string, bool, int, int>>();
+            var list = new List<Tuple<string, bool, int, float[]>>();
             lock (_lock) {
                 foreach (var img in _imgList.Values) {
                     if (!_imgList.TryGetValue(img.Next, out var imgnext)) {
                         continue;
                     }
 
-                    list.Add(Tuple.Create(img.Name, img.Verified, img.Score, imgnext.Score));
+                    list.Add(Tuple.Create(img.Name, img.Verified, img.Score, img.Vector));
                 }
             }
 
             var groupedData = list
-                .GroupBy(x => new { x.Item2, x.Item3, x.Item4 })
+                .GroupBy(x => new { x.Item2, x.Item3 })
                 .OrderBy(g => g.Key.Item2)
                 .ThenBy(g => g.Key.Item3)
-                .ThenBy(g => g.Key.Item4)
                 .Select(g => new {
                     GroupKey = g.Key,
                     OrderedItems = g.OrderBy(x => x.Item1).ToList()
@@ -408,22 +408,6 @@ namespace ImgMzx
                 .ToArray();
 
             if (!groupedData.Any()) {
-                return null;
-            }
-
-            var groupid = 0;
-            while (groupid < groupedData.Length && AppVars.RandomNext(2) == 0) {
-                groupid++;
-            }
-
-            if (groupid >= groupedData.Length) {
-                groupid = groupedData.Length - 1;
-            }
-
-            var group = groupedData[groupid].OrderedItems;
-            var randomid = AppVars.RandomNext(group.Count);
-            var nameX = group[randomid].Item1;
-            if (!TryGetByName(nameX, out var imgX)) {
                 return null;
             }
 
@@ -447,6 +431,50 @@ namespace ImgMzx
             }
 
             Status = sb.ToString();
+
+            var sortedArray = list
+                .OrderBy(x => x.Item2)
+                .ThenBy(x => x.Item3)
+                .ThenBy(x => x.Item1)
+                .Take(5000)
+                .ToArray();
+            var nameX = sortedArray[0].Item1;
+            if (_history.Count > 0) {
+                var distances = new float[_history.Count, sortedArray.Length];
+                for (var h = 0; h < _history.Count; h++) {
+                    Parallel.For(0, sortedArray.Length, i => { distances[h, i] = AppVit.GetDistance(_history[h], sortedArray[i].Item4); });
+                }
+
+                var maxDiff = 0f;
+                for (var i = 0; i < sortedArray.Length; i++) {
+                    var minDiff = float.MaxValue;
+                    for (var h = 0; h < _history.Count; h++) {
+                        var diff = distances[h, i];
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                        }
+                    }
+
+                    if (minDiff > maxDiff) {
+                         maxDiff = minDiff;
+                        nameX = sortedArray[i].Item1;
+                    }
+                }
+            }
+
+            if (!TryGetByName(nameX, out var imgX)) {
+                return null;
+            }
+
+            if (imgX == null) {
+                return null;
+            }
+
+            _history.Add(imgX.Vector);
+            while (_history.Count > 200) {
+                 _history.RemoveAt(0);
+            }
+
             return imgX;
         }
 

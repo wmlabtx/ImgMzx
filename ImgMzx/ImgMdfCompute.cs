@@ -123,12 +123,12 @@ public static partial class ImgMdf
             vector: vector,
             rotatemode: RotateMode.None,
             flipmode: FlipMode.None,
-            lastview: lastview,
+            lastview: DateTime.Now,
             verified: false,
             next: string.Empty,
             distance: 2f,
             score: 0,
-            lastcheck: lastview
+            lastcheck: new DateTime(1980, 1, 1)
         );
 
         AppImgs.Save(imgnew);
