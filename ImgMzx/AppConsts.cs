@@ -31,7 +31,8 @@
         public const string AttributeNext = "next";
         public const string AttributeScore = "score";
         public const string AttributeLastCheck = "lastcheck";
-        
+        public const string AttributeRadius = "radius";
+
         public const string TablePairs = "pairs";
         public const string AttributeHashX = "hashx";
         public const string AttributeHashY = "hashy";

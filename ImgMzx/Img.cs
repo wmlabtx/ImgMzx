@@ -16,8 +16,6 @@ namespace ImgMzx
         public int Score { get; }
         public DateTime LastCheck { get; }
 
-        public float VectorHash { get; }
-
         public Img(
             string hash,
             string name,
@@ -43,8 +41,6 @@ namespace ImgMzx
             Distance = distance;
             Score = score;
             LastCheck = lastcheck;
-
-            VectorHash = AppVit.GetDeviation(Vector);
         }
     }
 }

@@ -2,6 +2,7 @@
 using System.Data;
 using System.Text;
 using SixLabors.ImageSharp.Processing;
+using System.Windows;
 
 namespace ImgMzx
 {
@@ -11,7 +12,6 @@ namespace ImgMzx
         private static SqliteConnection _sqlConnection = new();
         private static readonly SortedList<string, Img> _imgList = new(); // hash/img
         private static readonly SortedList<string, string> _nameList = new(); // name/hash
-        private static readonly List<float[]> _history = new();
 
         public static string Status { get; private set; } = string.Empty;
 
@@ -384,26 +384,31 @@ namespace ImgMzx
             }
         }
 
+        public static Img? SetRadius(string hash, float radius)
+        {
+            return ImgUpdateProperty(hash, AppConsts.AttributeRadius, radius);
+        }
+
         public static Img? GetForView()
         {
-            var list = new List<Tuple<string, bool, int, float[]>>();
+            var list = new List<Img>();
             lock (_lock) {
                 foreach (var img in _imgList.Values) {
                     if (!_imgList.TryGetValue(img.Next, out var imgnext)) {
                         continue;
                     }
 
-                    list.Add(Tuple.Create(img.Name, img.Verified, img.Score, img.Vector));
+                    list.Add(img);
                 }
             }
 
             var groupedData = list
-                .GroupBy(x => new { x.Item2, x.Item3 })
-                .OrderBy(g => g.Key.Item2)
-                .ThenBy(g => g.Key.Item3)
+                .GroupBy(x => new { x.Verified, x.Score })
+                .OrderBy(g => g.Key.Verified)
+                .ThenBy(g => g.Key.Score)
                 .Select(g => new {
                     GroupKey = g.Key,
-                    OrderedItems = g.OrderBy(x => x.Item1).ToList()
+                    OrderedItems = g.ToList()
                 })
                 .ToArray();
 
@@ -421,6 +426,9 @@ namespace ImgMzx
                     sb.Append("/");
                 }
 
+                sb.Append(groupedData[i].OrderedItems[0].Verified ? "" : "n");
+                sb.Append(groupedData[i].OrderedItems[0].Score);
+                sb.Append(':');
                 sb.Append(groupedData[i].OrderedItems.Count);
             }
 
@@ -430,50 +438,132 @@ namespace ImgMzx
                 sb.Append($"{_imgList.Count} ({diff})");
             }
 
+            list = list
+                .OrderBy(e => e.Verified)
+                .ThenBy(e => e.Score)
+                .Take(10000)
+                .ToList();
+
+            var w = new double[list.Count];
+            var wsum = 0.0;
+            var maxlv = list.Max(e => e.LastView.Ticks / (double)TimeSpan.TicksPerDay);
+            for (var i = 0; i < list.Count; i++) {
+                var diff = maxlv - (list[i].LastView.Ticks / (double)TimeSpan.TicksPerDay);
+                w[i] = diff * diff;
+                wsum += w[i];
+            }
+
+            for (var i = 0; i < list.Count; i++) {
+                w[i] /= wsum;
+            }
+
+            var random = AppVars.RandomDouble();
+            var a = 0;
+            for (a = 0; a < list.Count; a++) {
+                if (random < w[a]) {
+                    break;
+                }
+
+                random -= w[a];
+            }
+
+            sb.Append($" a:{a}");
             Status = sb.ToString();
 
-            var sortedArray = list
-                .OrderBy(x => x.Item2)
-                .ThenBy(x => x.Item3)
-                .ThenBy(x => x.Item1)
-                .Take(5000)
-                .ToArray();
-            var nameX = sortedArray[0].Item1;
-            if (_history.Count > 0) {
-                var distances = new float[_history.Count, sortedArray.Length];
-                for (var h = 0; h < _history.Count; h++) {
-                    Parallel.For(0, sortedArray.Length, i => { distances[h, i] = AppVit.GetDistance(_history[h], sortedArray[i].Item4); });
-                }
+            var imgX = list[a];
 
-                var maxDiff = 0f;
-                for (var i = 0; i < sortedArray.Length; i++) {
-                    var minDiff = float.MaxValue;
-                    for (var h = 0; h < _history.Count; h++) {
-                        var diff = distances[h, i];
-                        if (diff < minDiff) {
-                            minDiff = diff;
-                        }
+            /*
+            Img[] recent;
+            lock (_lock) {
+                recent = _imgList.Values.OrderByDescending(e => e.LastView).Take(256).ToArray();
+            }
+            */
+
+            /*
+            var minVerified = list.Min(e => e.Verified);
+            list = list.Where(e => e.Verified == minVerified).ToList();
+            var minScore = list.Min(e => e.Score);
+            list = list.Where(e => e.Score == minScore).ToList();
+            */
+
+            /*
+            list = list
+                .OrderBy(e => e.Verified)
+                .ThenBy(e => e.Score)
+                .Take(10000)
+                .ToList();
+            var distances = new float[list.Count, recent.Length];
+            Parallel.For(0, list.Count, i => {
+                var img = list[i];
+                Parallel.For(0, recent.Length, j => { distances[i, j] = AppVit.GetDistance(img.Vector, recent[j].Vector); });
+            });
+
+            var imgX = list[0];
+            var maxDistance = 0f;
+            for (var i = 0; i < list.Count; i++) {
+                var minDistance = distances[i, 0];
+                for (var j = 1; j < recent.Length; j++) {
+                    if (distances[i, j] < minDistance) {
+                        minDistance = distances[i, j];
                     }
+                }
+                if (minDistance > maxDistance) {
+                    maxDistance = minDistance;
+                    imgX = list[i];
+                }
+            }
+            */
 
-                    if (minDiff > maxDiff) {
-                         maxDiff = minDiff;
-                        nameX = sortedArray[i].Item1;
-                    }
+
+            /*
+            var minVerified = list.Min(x => x.Verified); 
+            list = list.Where(x => x.Verified == minVerified).ToList();
+            var minScore = list.Min(x => x.Score);
+            list = list.Where(x => x.Score == minScore).ToList();
+
+            var imgX = list.MinBy(e => e.LastView.AddMinutes(AppVars.GetRandomIndex(60*24*7)));
+            */
+            /*
+            var distances = new float[list.Count];
+            Parallel.For(0, distances.Length, i => { distances[i] = AppVit.GetDistance(_lastVector, list[i].Vector); });
+
+            // find i where distances[i] is minimal
+
+            var minIndex = 0;
+            var minDistance = distances[0];
+            for (var i = 1; i < distances.Length; i++) {
+                if (distances[i] < minDistance) {
+                    minDistance = distances[i];
+                    minIndex = i;
                 }
             }
 
-            if (!TryGetByName(nameX, out var imgX)) {
-                return null;
-            }
+            var imgX = list[minIndex];
+            Array.Copy(list[minIndex].Vector, _lastVector, list[minIndex].Vector.Length);
+            */
 
-            if (imgX == null) {
-                return null;
+            /*
+            var imgX = list[0];
+            for (var a = 0; a < 10000; a++) {
+                var randomIndex = AppVars.GetRandomIndex(list.Count);
+                var img = list[randomIndex];
+                if (imgX.Verified && !img.Verified) {
+                    imgX = img;
+                }
+                else if (!imgX.Verified && img.Verified) {
+                    continue;
+                }
+                else if (imgX.Score > img.Score) {
+                    imgX = img;
+                }
+                else if (imgX.Score < img.Score) {
+                    continue;
+                }
+                else if (imgX.LastView > img.LastView) {
+                    imgX = img;
+                }
             }
-
-            _history.Add(imgX.Vector);
-            while (_history.Count > 200) {
-                 _history.RemoveAt(0);
-            }
+            */
 
             return imgX;
         }
@@ -559,7 +649,7 @@ namespace ImgMzx
 
             return set;
         }
-                                                                
+
         public static void DeleteHistory(string hash)
         {
             const string commandtext =

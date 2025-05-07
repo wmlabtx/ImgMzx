@@ -123,7 +123,7 @@ public static partial class ImgMdf
             vector: vector,
             rotatemode: RotateMode.None,
             flipmode: FlipMode.None,
-            lastview: DateTime.Now,
+            lastview: lastview,
             verified: false,
             next: string.Empty,
             distance: 2f,
@@ -243,6 +243,7 @@ public static partial class ImgMdf
         }
 
         var beam = AppImgs.GetBeam(img);
+        var radius = beam[beam.Length / 5].Item2;
         var history = AppImgs.GetHistory(img.Hash);
         var historycount = history.Count;
         foreach (var h in history) {

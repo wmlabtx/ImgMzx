@@ -31,7 +31,7 @@ namespace ImgMzx
             return result;
         }
 
-        private static double RandomDouble()
+        public static double RandomDouble()
         {
             double result;
             if (Monitor.TryEnter(_random, AppConsts.LockTimeout)) {

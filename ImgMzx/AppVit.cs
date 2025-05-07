@@ -101,11 +101,4 @@ public static class AppVit
         distance = 1f - distance;
         return distance;
     }
-
-    public static float GetDeviation(float[] vector)
-    {
-        var mean = vector.Sum() / vector.Length;
-        var deviation = vector.Sum(t => Math.Abs(t - mean)) / vector.Length;
-        return deviation;
-    }
 }
