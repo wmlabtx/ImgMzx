@@ -69,26 +69,19 @@ namespace ImgMzx
             }
 
             var rvector = AppVit.GetVector(image);
-            AppImgs.SetVectorFacesOrientation(
-                hash: hash,
-                vector: rvector,
-                rotatemode: rotatemode,
-                flipmode: flipmode);
+            img.SetVector(rvector);
+            img.SetRotateMode(rotatemode);
+            img.SetFlipMode(flipmode);
         }
 
         public static void Delete(string hashD)
         {
-            AppImgs.DeleteHistory(hashD);
-
-            if (!AppImgs.TryGet(hashD, out var imgX)) {
-                return;
+            if (AppImgs.TryGet(hashD, out var imgX)) {
+                Debug.Assert(imgX != null);
+                var filename = AppFile.GetFileName(imgX.Name, AppConsts.PathHp);
+                DeleteEncryptedFile(filename);
             }
 
-            Debug.Assert(imgX != null);
-
-            var filename = AppFile.GetFileName(imgX.Name, AppConsts.PathHp);
-            DeleteEncryptedFile(filename);
-            AppImgs.Remove(hashD);
             AppImgs.Delete(hashD);
         }
 

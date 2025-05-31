@@ -47,7 +47,7 @@ namespace ImgMzx
 
             AppVars.Progress = new Progress<string>(message => Status.Text = message);
 
-            await Task.Run(() => { AppImgs.Load(AppConsts.FileDatabase, AppVars.Progress); }).ConfigureAwait(true);
+            await Task.Run(() => { AppImgs.Load(AppConsts.FileDatabase, AppVars.Progress, out int maxImages); AppVars.MaxImages = maxImages; }).ConfigureAwait(true);
             await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
 
             DrawCanvas();
@@ -142,9 +142,9 @@ namespace ImgMzx
                     sb.Append($" +{panels[index]!.Img.Score}");
                 }
 
-                var history = AppImgs.GetHistory(panels[index]!.Img.Hash);
-                if (history.Count > 0) {
-                    sb.Append($" [{history.Count}]");
+                var historySize = panels[index]!.Img.GetHistorySize();
+                if (historySize > 0) {
+                    sb.Append($" [{historySize}]");
                 }
 
                 sb.AppendLine();
@@ -167,10 +167,8 @@ namespace ImgMzx
                 if (!panels[index]!.Img.Verified) {
                     pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
                 }
-                else {
-                    if (history.Count > 0) {
-                        pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
-                    }
+                else if (historySize > 0) {
+                    pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
                 }
             }
 

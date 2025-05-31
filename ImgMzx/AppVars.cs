@@ -52,15 +52,6 @@ namespace ImgMzx
             return result;
         }
 
-        public static int GetRandomIndex(int maxValue)
-        {
-            var max = maxValue - 10;
-            var randomValue = RandomDouble();
-            var base10 = Math.Pow(10, 1.0/3000);
-            var index = (int)(Math.Log(1 - randomValue * (1 - Math.Pow(base10, -max))) / -Math.Log(base10)) + 10;
-            return index;
-        }
-
         public static byte[] RandomBuffer(int length)
         {
             byte[] buffer;

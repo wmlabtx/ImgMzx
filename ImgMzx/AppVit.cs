@@ -91,6 +91,7 @@ public static class AppVit
         return vector;
     }
 
+    /*
     public static float GetDistance(float[] x, float[] y)
     {
         if (x.Length == 0 || y.Length == 0 || x.Length != y.Length) {
@@ -99,6 +100,17 @@ public static class AppVit
 
         var distance = x.Select((t, i) => t * y[i]).Sum();
         distance = 1f - distance;
+        return distance;
+    }
+    */
+
+    public static float GetDistance(float[] x, float[] y)
+    {
+        if (x.Length == 0 || y.Length == 0 || x.Length != y.Length) {
+            return 1.1f;
+        }
+
+        var distance = (float)Math.Sqrt(x.Select((t, i) => (t - y[i]) * (t - y[i])).Sum());
         return distance;
     }
 }

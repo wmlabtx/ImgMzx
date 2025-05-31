@@ -126,12 +126,13 @@ public static partial class ImgMdf
             lastview: lastview,
             verified: false,
             next: string.Empty,
-            distance: 2f,
+            distance: float.MaxValue,
             score: 0,
             lastcheck: new DateTime(1980, 1, 1)
         );
 
-        AppImgs.Save(imgnew);
+        AppImgs.Add(imgnew);
+        AppDatabase.Add(imgnew);
         _added++;
         return true;
     }
@@ -165,7 +166,8 @@ public static partial class ImgMdf
     private static void Compute(BackgroundWorker backgroundworker)
     {
         if (AppVars.ImportRequested) {
-            AppImgs.UpdateMaxImages();
+            AppVars.MaxImages = (int)Math.Round(AppVars.MaxImages * 0.9996);
+            AppDatabase.UpdateMaxImages();
             var lastview = AppImgs.GetMinimalLastView();
             _added = 0;
             _found = 0;
@@ -205,7 +207,7 @@ public static partial class ImgMdf
         }
         
         var hash = AppHash.GetHash(imagedata);
-        if (!hash.Equals(img.Hash) || img.Vector.Length != 512) {
+        if (!hash.Equals(img.Hash) || img.GetVector().Length != 512) {
             backgroundworker.ReportProgress(0, $"{img.Name}: fixing...");
             using var image = AppBitmap.GetImage(imagedata);
             if (image == null) {
@@ -225,51 +227,43 @@ public static partial class ImgMdf
                     lastview: img.LastView,
                     verified: img.Verified,
                     next: string.Empty,
-                    distance: 2f,
+                    distance: float.MaxValue,
                     score: img.Score,
                     lastcheck: img.LastCheck
                 );
 
-                AppImgs.Remove(img.Hash);
                 AppImgs.Delete(img.Hash);
-                AppImgs.Save(imgnew);
+                AppDatabase.Delete(img.Hash);
+                AppImgs.Add(imgnew);
+                AppDatabase.Add(imgnew);
                 img = imgnew;
             }
             else {
-                if (img.Vector.Length != 512) {
-                    AppImgs.SetVectorFacesOrientation(img.Hash, vector, img.RotateMode, img.FlipMode);
+                if (img.GetVector().Length != 512) {
+                    img.SetVector(vector);
                 }
             }
         }
 
-        var beam = AppImgs.GetBeam(img);
-        var radius = beam[beam.Length / 5].Item2;
-        var history = AppImgs.GetHistory(img.Hash);
-        var historycount = history.Count;
+        var history = img.GetHistory();
         foreach (var h in history) {
-            if (!AppImgs.TryGet(h, out _)) {
-                AppImgs.DeleteHistory(h);
-                historycount--;
+            if (!AppImgs.TryGetByName(h, out var imgnext)) {
+                img.RemoveFromHistory(h);
             }
         }
 
-        if (historycount < history.Count) {
-            history = AppImgs.GetHistory(img.Hash);
-        }
-
-        var index = Array.FindIndex(beam, t => !history.Contains(t.Item1.Hash));
-        var next = beam[index].Item1.Hash;
-        var distance = beam[index].Item2;
+        var beam = AppImgs.GetBeam(img);
+        var next = beam[0].Item1.Hash;
+        var distance = beam[0].Item2;
         var olddistance = img.Distance;
         var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
         if (!img.Next.Equals(next) || Math.Abs(img.Distance - distance) >= 0.0001f) {
             Debug.Assert(!img.Next.Equals(hash));
             backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {img.Name}: {olddistance:F4} {AppConsts.CharRightArrow} {distance:F4}");
-            img = AppImgs.SetNextDistance(img.Hash, next, distance);
+            img.SetNext(next);
+            img.SetDisnance(distance);
         }
 
-        if (img != null) {
-            _ = AppImgs.UpdateLastCheck(img.Hash);
-        }
+        img.UpdateLastCheck();
     }
 }

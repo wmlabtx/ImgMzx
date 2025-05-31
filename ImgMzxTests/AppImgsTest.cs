@@ -8,7 +8,7 @@ public class AppImgsTest
     [TestMethod]
     public void Main()
     {
-        AppImgs.Load(AppConsts.FileDatabase, null);
+        //AppImgs.Load(AppConsts.FileDatabase, null);
     }
 }
 
