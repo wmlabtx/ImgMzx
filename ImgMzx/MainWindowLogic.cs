@@ -93,8 +93,19 @@ namespace ImgMzx
         private async void ButtonLeftNextMouseClick()
         {
             DisableElements();
-            await Task.Run(AppPanels.Confirm).ConfigureAwait(true);
+            await Task.Run(() => { AppPanels.Confirm(AppVars.Progress); }).ConfigureAwait(true);
             await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
+            DrawCanvas();
+            EnableElements();
+        }
+
+        private async void ButtonRightNextMouseClick()
+        {
+            DisableElements();
+            await Task.Run(() => { AppPanels.Confirm(AppVars.Progress); }).ConfigureAwait(true);
+            var hashX = AppPanels.GetImgPanel(0)!.Img.Hash;
+            hashX = AppImgs.GetInTheSameFamily(hashX);
+            await Task.Run(() => { ImgMdf.Find(hashX, AppVars.Progress); }).ConfigureAwait(true);
             DrawCanvas();
             EnableElements();
         }
@@ -147,6 +158,11 @@ namespace ImgMzx
                     sb.Append($" [{historySize}]");
                 }
 
+                if (panels[index]!.Img.Family > 0) {
+                    var familySize = AppImgs.GetFamilySize(panels[index]!.Img.Family);
+                    sb.Append($" [{panels[index]!.Img.Family}:{familySize}]");
+                }
+
                 sb.AppendLine();
 
                 sb.Append($"{Helper.SizeToString(panels[index]!.Size)} ");
@@ -166,6 +182,9 @@ namespace ImgMzx
                 pLabels[index].Background = System.Windows.Media.Brushes.White;
                 if (!panels[index]!.Img.Verified) {
                     pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
+                }
+                else if (panels[index]!.Img.Family > 0 && panels[index]!.Img.Family == panels[1 - index]!.Img.Family) {
+                    pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
                 }
                 else if (historySize > 0) {
                     pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
@@ -206,7 +225,7 @@ namespace ImgMzx
         private async void ImgPanelDeleteLeft()
         {
             DisableElements();
-            await Task.Run(AppPanels.DeleteLeft).ConfigureAwait(true);
+            await Task.Run(() => { AppPanels.DeleteLeft(AppVars.Progress); }).ConfigureAwait(true);
             await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
             DrawCanvas();
             EnableElements();
@@ -223,7 +242,9 @@ namespace ImgMzx
         {
             DisableElements();
             await Task.Run(() => { AppPanels.DeleteRight(AppVars.Progress); }).ConfigureAwait(true);
-            await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
+            var hashX = AppPanels.GetImgPanel(0)!.Img.Hash;
+            hashX = AppImgs.GetInTheSameFamily(hashX);
+            await Task.Run(() => { ImgMdf.Find(hashX, AppVars.Progress); }).ConfigureAwait(true);
             DrawCanvas();
             EnableElements();
         }
@@ -277,12 +298,65 @@ namespace ImgMzx
             EnableElements();
         }
 
+        private void FamilyAddClick()
+        {
+            DisableElements();
+            var imgX = AppPanels.GetImgPanel(0)!.Img;
+            var imgY = AppPanels.GetImgPanel(1)!.Img;
+            if (imgX.Family == 0 && imgY.Family == 0) {
+                var family = AppImgs.GetNextFamily();
+                imgX.SetFamily(family);
+                imgY.SetFamily(family);
+            }
+            else if (imgX.Family > 0 && imgY.Family == 0) {
+                imgY.SetFamily(imgX.Family);
+            }
+            else if (imgX.Family == 0 && imgY.Family > 0) {
+                imgX.SetFamily(imgY.Family);
+            }
+            else if (imgX.Family != imgY.Family) {
+                var family = Math.Min(imgX.Family, imgY.Family);
+                if (imgX.Family != family) {
+                    AppImgs.MoveFamily(imgX.Family, family);
+                }
+                if (imgY.Family != family) {
+                    AppImgs.MoveFamily(imgY.Family, family);
+                }
+            }
+
+            DrawCanvas();
+            EnableElements();
+        }
+
+        private void FamilyRemoveClick()
+        {
+            DisableElements();
+            var imgX = AppPanels.GetImgPanel(0)!.Img;
+            var imgY = AppPanels.GetImgPanel(1)!.Img;
+            if (imgX.Family != 0 && imgX.Family == imgY.Family) {
+                var size = AppImgs.GetFamilySize(imgX.Family);
+                imgX.SetFamily(0);
+                if (size < 2) {
+                    imgY.SetFamily(0);
+                }
+            }
+
+            DrawCanvas();
+            EnableElements();
+        }
+
         private void OnKeyDown(Key key)
         {
             switch (key) {
                 case Key.V:
                     ToggleXorClick();
                     break; 
+                case Key.A:
+                    FamilyAddClick();
+                    break;
+                case Key.D:
+                    FamilyRemoveClick();
+                    break;
             }
         }
 

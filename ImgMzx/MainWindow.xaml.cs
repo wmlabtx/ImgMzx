@@ -47,8 +47,11 @@ namespace ImgMzx
             }
         }
 
-        private static void ButtonRightNextMouseClick(object sender, MouseEventArgs e)
+        private void ButtonRightNextMouseClick(object sender, MouseEventArgs e)
         {
+            if (e.LeftButton == MouseButtonState.Pressed) {
+                ButtonRightNextMouseClick();
+            }
         }
 
         private void RotateClick(object sender, EventArgs e)
@@ -91,6 +94,16 @@ namespace ImgMzx
         private void ToggleXorClick(object sender, RoutedEventArgs e)
         {
             ToggleXorClick();
+        }
+
+        private void FamilyAddClick(object sender, RoutedEventArgs e)
+        {
+            FamilyAddClick();
+        }
+
+        private void FamilyRemoveClick(object sender, RoutedEventArgs e)
+        {
+            FamilyRemoveClick();
         }
 
         private void OnClosed(object sender, EventArgs e)

@@ -19,15 +19,17 @@ namespace ImgMzx
         public int Score { get; private set; }
         public string Next { get; private set; }
         public float Distance { get; private set; }
+        public int Family { get; private set; }
 
         private float[] _vector;
-        private SortedSet<string> _history;
+        private SortedSet<int> _history;
 
         public Img(
             string hash,
             string name,
             float[] vector,
             DateTime lastview,
+            SortedSet<int> history,
             RotateMode rotatemode = RotateMode.None,
             FlipMode flipmode = FlipMode.None,
             bool verified = false,
@@ -35,7 +37,7 @@ namespace ImgMzx
             float distance = float.MaxValue,
             int score = 0,
             DateTime lastcheck = default,
-            string rawhistory = ""
+            int family = 0
             )
         {
             Hash = hash;
@@ -48,11 +50,11 @@ namespace ImgMzx
             Distance = distance;
             Score = score;
             LastCheck = lastcheck;
+            Family = family;
 
             _vector = vector;
 
-            var pars = rawhistory.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-            _history = new SortedSet<string>(pars, StringComparer.OrdinalIgnoreCase);
+            _history = new SortedSet<int>(history);
         }
 
         public float[] GetVector()
@@ -60,9 +62,9 @@ namespace ImgMzx
             return _vector;
         }
 
-        public string GetRawHistory()
+        public byte[] GetRawHistory()
         {
-            return string.Join(",", _history);
+            return Helper.ArrayFromInt(_history.ToArray<int>());
         }
 
         public long GetRawLastCheck()
@@ -134,26 +136,23 @@ namespace ImgMzx
             AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeDistance, distance);
         }
 
-        public void AddToHistory(string name)
+        public void AddToHistory(int family)
         {
-            Debug.Assert(name.Length < 32);
-            if (_history.Add(name)) {
+            if (_history.Add(family)) {
                 AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeHistory, GetRawHistory());
             }
         }
 
-        public void RemoveFromHistory(string name)
+        public void RemoveFromHistory(int family)
         {
-            Debug.Assert(name.Length < 32);
-            if (_history.Remove(name)) {
+            if (_history.Remove(family)) {
                 AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeHistory, GetRawHistory());
             }
         }
 
-        public bool IsInHistory(string name)
+        public bool IsInHistory(int family)
         {
-            Debug.Assert(name.Length < 32);
-            return _history.Contains(name);
+            return _history.Contains(family);
         }
 
         public int GetHistorySize()
@@ -161,11 +160,15 @@ namespace ImgMzx
             return _history.Count;
         }
 
-        public string[] GetHistory()
+        public SortedSet<int> GetHistory()
         {
-            var arr = new string[_history.Count];
-            _history.CopyTo(arr);
-            return arr;
+            return new SortedSet<int>(_history);
+        }
+
+        public void SetFamily(int family)
+        {
+            Family = family;
+            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeFamily, family);
         }
     }
 }

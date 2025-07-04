@@ -22,25 +22,28 @@ namespace ImgMzx
                 }
 
                 if (imgX == null) {
-                    imgX = AppImgs.GetForView();
+                    imgX = AppImgs.GetX(progress);
                     if (imgX == null) {
                         progress?.Report($"totalcount = {totalcount}");
                         return;
                     }
                 }
-
-                hashX = imgX.Hash;
-                Debug.Assert(hashX != null);
-                if (!AppPanels.SetLeftPanel(hashX, progress)) {
-                    Delete(hashX);
+                
+                Debug.Assert(imgX != null);
+                if (!AppPanels.SetLeftPanel(imgX.Hash, progress)) {
+                    Delete(imgX.Hash);
                     hashX = null;
+                    imgX = null;
                     continue;
                 }
 
-                var hashY = imgX.Next;
+                AppImgs.UpdateNext(imgX, progress);
+                var hashY = AppImgs.GetY(imgX, progress);
+                Debug.Assert(hashY != null);
                 if (!AppPanels.SetRightPanel(hashY, progress)) {
                     Delete(hashY);
                     hashX = null;
+                    imgX = null;
                     continue;
                 }
 

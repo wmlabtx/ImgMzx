@@ -121,6 +121,7 @@ public static partial class ImgMdf
             hash: hash,
             name: name,
             vector: vector,
+            history: new SortedSet<int>(),
             rotatemode: RotateMode.None,
             flipmode: FlipMode.None,
             lastview: lastview,
@@ -193,7 +194,7 @@ public static partial class ImgMdf
                 ((IProgress<string>)AppVars.Progress).Report($"Imported a:{_added}/f:{_found}/b:{_bad}");
             }
         }
-
+/*
         var img = AppImgs.GetForCheck();
         Debug.Assert(img != null);
 
@@ -222,6 +223,7 @@ public static partial class ImgMdf
                     hash: hash,
                     name: img.Name,
                     vector: vector,
+                    history: img.GetHistory(),
                     rotatemode: img.RotateMode,
                     flipmode: img.FlipMode,
                     lastview: img.LastView,
@@ -245,6 +247,11 @@ public static partial class ImgMdf
             }
         }
 
+        var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
+        backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {img.Name}");
+        img.UpdateLastCheck();
+
+        /*
         var history = img.GetHistory();
         foreach (var h in history) {
             if (!AppImgs.TryGetByName(h, out var imgnext)) {
@@ -265,5 +272,6 @@ public static partial class ImgMdf
         }
 
         img.UpdateLastCheck();
+*/
     }
 }

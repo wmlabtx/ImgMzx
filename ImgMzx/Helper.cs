@@ -82,5 +82,18 @@ namespace ImgMzx
             Buffer.BlockCopy(buffer, 0, array, 0, buffer.Length);
             return array;
         }
+        public static byte[] ArrayFromInt(int[] array)
+        {
+            var buffer = new byte[array.Length * sizeof(int)];
+            Buffer.BlockCopy(array, 0, buffer, 0, buffer.Length);
+            return buffer;
+        }
+
+        public static int[] ArrayToInt(byte[] buffer)
+        {
+            var array = new int[buffer.Length / sizeof(int)];
+            Buffer.BlockCopy(buffer, 0, array, 0, buffer.Length);
+            return array;
+        }
     }
 }

@@ -1,6 +1,7 @@
-﻿using System.Diagnostics;
+﻿using SixLabors.ImageSharp.PixelFormats;
+using System;
+using System.Diagnostics;
 using System.Security.Policy;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace ImgMzx;
 
@@ -115,7 +116,7 @@ public static class AppPanels
         return SetRightPanel(_imgPanels[1]!.Img.Hash, progress);
     }
 
-    public static void Confirm()
+    public static void Confirm(IProgress<string>? progress)
     {
         var hashX = _imgPanels[0]!.Img.Hash;
         var hashY = _imgPanels[1]!.Img.Hash;
@@ -123,45 +124,50 @@ public static class AppPanels
             Debug.Assert(imgX != null);
             Debug.Assert(imgY != null);
 
-            imgY.UpdateLastView();
-            imgY.SetScore(imgY.Score + 1);
-            imgY.AddToHistory(imgX.Name);
-            imgY.SetNext(string.Empty);
+            if (imgX.Family > 0 && imgX.Family != imgY.Family) {
+                imgY.AddToHistory(imgX.Family);
+            }
+            
+            //AppImgs.UpdateNext(imgY, progress);
 
             imgX.UpdateLastView();
             imgX.SetScore(imgX.Score + 1);
             imgX.UpdateVerified();
-            imgX.AddToHistory(imgY.Name);
-            imgX.SetNext(string.Empty);
+
+            if (imgY.Family > 0 && imgY.Family != imgX.Family) {
+                imgX.AddToHistory(imgY.Family);
+            }
+
+            //AppImgs.UpdateNext(imgX, progress);
         }
     }
 
-    public static void DeleteLeft()
+    public static void DeleteLeft(IProgress<string>? progress)
     {
         var hashX = _imgPanels[0]!.Img.Hash;
         var hashY = _imgPanels[1]!.Img.Hash;
-        if (AppImgs.TryGet(hashY, out var imgY)) {
-            Debug.Assert(imgY != null);
-            imgY.UpdateLastView();
-            imgY.SetScore(imgY.Score + 1);
-        }
-
         ImgMdf.Delete(hashX);
         AppDatabase.Delete(hashX);
+        /*
+        if (AppImgs.TryGet(hashY, out var imgY)) {
+            Debug.Assert(imgY != null);
+            AppImgs.UpdateNext(imgY, progress);
+        }
+        */
     }
 
     public static void DeleteRight(IProgress<string>? progress)
     {
         var hashX = _imgPanels[0]!.Img.Hash;
         var hashY = _imgPanels[1]!.Img.Hash;
-        if (AppImgs.TryGet(hashY, out var imgY)) {
-            Debug.Assert(imgY != null);
-            imgY.UpdateLastView();
-            imgY.SetScore(imgY.Score + 1);
+        ImgMdf.Delete(hashY);
+        AppDatabase.Delete(hashY);
+        if (AppImgs.TryGet(hashX, out var imgX)) {
+            Debug.Assert(imgX != null);
+            imgX.UpdateLastView();
+            imgX.SetScore(imgX.Score + 1);
+            //AppImgs.UpdateNext(imgX, progress);
         }
-
-        ImgMdf.Delete(hashX);
-        AppDatabase.Delete(hashX);
     }
 
     public static void Export(IProgress<string>? progress)

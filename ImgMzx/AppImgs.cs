@@ -1,11 +1,13 @@
 ﻿using Microsoft.Data.Sqlite;
-using System.Data;
-using System.Text;
 using SixLabors.ImageSharp.Processing;
-using System.Windows;
-using System.Diagnostics;
+using System;
 using System.CodeDom;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
 using System.Security.Policy;
+using System.Text;
+using System.Windows;
 
 namespace ImgMzx;
 
@@ -15,7 +17,6 @@ public static class AppImgs
     private static SqliteConnection _sqlConnection = new();
     private static SortedList<string, Img> _imgList = new(); // hash/img
     private static SortedList<string, string> _nameList = new(); // name/hash
-    private static readonly List<float[]> _recent = new();
 
     public static string Status { get; private set; } = string.Empty;
 
@@ -98,12 +99,6 @@ public static class AppImgs
                         AppDatabase.Delete(key);
                     }
                 }
-
-                foreach (var e in _imgList.Values) {
-                    if (e.IsInHistory(img!.Name)) {
-                        e.RemoveFromHistory(img.Name);
-                    }
-                }
             }
             else {
                 if (TryGetByName(key, out var img)) {
@@ -113,11 +108,6 @@ public static class AppImgs
                     }
 
                     _nameList.Remove(key);
-                    foreach (var e in _imgList.Values) {
-                        if (e.IsInHistory(key)) {
-                            e.RemoveFromHistory(key);
-                        }
-                    }
                 }
             }
         }
@@ -143,8 +133,14 @@ public static class AppImgs
         List<Img> shadow = new();
         lock (_lock) {
             foreach (var e in _imgList.Values) {
-                if (img.Hash.Equals(e.Hash) || img.IsInHistory(e.Name)) {
+                if (e.Hash.Equals(img.Hash)) {
                     continue;
+                }
+
+                if (img.Family > 0 && e.Family > 0) {
+                    if (e.Family == img.Family || img.IsInHistory(e.Family)) {
+                        continue;
+                    }
                 }
 
                 shadow.Add(e);
@@ -170,316 +166,189 @@ public static class AppImgs
         }
     }
 
-    public static Img? GetForView()
+    public static int GetFamilySize(int family)
     {
-        Img? imgX = null;
+        lock (_lock) {
+            return _imgList.Count(e => e.Value.Family == family);
+        }
+    }
 
+    public static List<string> GetFamily(int family)
+    {
+        lock (_lock) {
+            return _imgList.Where(e => e.Value.Family == family).Select(e => e.Value.Name).ToList();
+        }
+    }
+
+    public static int GetNextFamily()
+    {
+        lock (_lock) {
+            return _imgList.Max(e => e.Value.Family) + 1;
+        }
+    }
+
+    public static void MoveFamily(int s, int d)
+    {
         lock (_lock) {
             foreach (var img in _imgList.Values) {
-                if (img.Hash.Equals(img.Next)) {
-                    continue;
-                }
-
-                if (!_imgList.TryGetValue(img.Next, out Img? imgY)) {
-                    continue;
-                }
-
-                if (imgY == null) {
-                    continue;
-                }
-
-                if (imgX == null) {
-                    imgX = img;
-                    continue;
-                }
-
-                if (img.Score < imgX.Score) {
-                    imgX = img;
-                    continue;
-                }
-
-                if (img.Score > imgX.Score) {
-                    continue;
-                }
-
-                if (img.Hash.CompareTo(imgX.Hash) < 0) {
-                    imgX = img;
+                if (img.Family == s) {
+                    img.SetFamily(d);
                 }
             }
         }
+    }
 
-        /*
-        var pr = new List<Img>();
-
+    public static Img? GetX(IProgress<string>? progress)
+    {
         lock (_lock) {
+            /*
+            var scope = _imgList.Where(e => e.Value.GetHistorySize() < 10).ToArray();
+            var maxHistorySize = scope.Max(e => e.Value.GetHistorySize());
+            scope = scope.Where(e => e.Value.GetHistorySize() == maxHistorySize).ToArray();
+
+            var r = AppVars.RandomNext(scope.Length);
+            var imgX = scope.ElementAt(r).Value;
+              */
+            
+            /*
             foreach (var img in _imgList.Values) {
                 if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
-                    continue;
+                    AppImgs.UpdateNext(img, progress);
                 }
-
-                if (pr.Count == 0) { 
-                    pr.Add(img);
-                    continue;
-                }
-
-                if (img.Score < pr[0].Score) { 
-                    pr.Clear();
-                    pr.Add(img);
-                    continue;
-                }
-
-                if (img.Score > pr[0].Score) {
-                    continue;
-                }
-
-                pr.Add(img);
             }
-
-            imgX = pr.MinBy(e => AppVars.RandomNext(100000));
-        }
-        */
-
-        var sb = new StringBuilder();
-        lock (_lock) {
-            var diff = _imgList.Count - AppVars.MaxImages;
-            sb.Append($"{_imgList.Count} ({diff})");
-        }
-
-        Status = sb.ToString();
-        return imgX;
-
-        /*
-        var list = new SortedList<int, List<Img>>[2];
-        lock (_lock) {
+            */
+            
+            var m = AppVars.RandomNext(10);
+            var bins = new SortedList<int, List<Img>>();
             foreach (var img in _imgList.Values) {
-                if (!_imgList.TryGetValue(img.Next, out var imgnext)) {
+                if (m < 8) {
+                    if (img.Family == 0) {
+                        continue;
+                    }
+                }
+                else if (m == 8) {
+                    if (img.Family > 0) {
+                        continue;
+                    }
+                }
+                else if (m == 9) {
+                    if (img.Verified) {
+                        continue;
+                    }
+                }
+
+                var age = (int)Math.Round(DateTime.Now.Subtract(img.LastView).TotalDays);
+                if (age > 0) {
+                    if (bins.TryGetValue(age, out var list)) {
+                        list.Add(img);
+                    }
+                    else {
+                        bins.Add(age, new List<Img>() { img });
+                    }
+                }
+            }
+            
+            var rank = new List<Tuple<int, int>>();
+            foreach (var e in bins.Keys) {
+                var agerandom = e + AppVars.RandomNext(365);
+                rank.Add(Tuple.Create(e, agerandom));
+            }
+
+            var orderedRank = rank.OrderByDescending(x => x.Item2).ToList();
+            var agewinner = orderedRank[0].Item1;
+            var r = AppVars.RandomNext(bins[agewinner].Count);
+            var imgX = bins[agewinner][r];
+            if (imgX.Family == 0) {
+                imgX.SetFamily(AppImgs.GetNextFamily());
+            }
+           
+            return imgX;
+        }
+    }
+
+    public static string? GetInTheSameFamily(string hash)
+    {
+        lock (_lock) {
+            if (!TryGet(hash, out var img)) {
+                return null;
+            }
+
+            if (img == null) {
+                return null;
+            }
+
+            if (img.Family == 0) {
+                return null;
+            }
+
+            var family = GetFamily(img.Family);
+            Img? imgX = null;
+            foreach (var name in family) {
+                if (name.Equals(img.Name)) {
+                    continue;
+                }
+                if (!TryGetByName(name, out Img? imgN)) {
                     continue;
                 }
 
-                var dimg = (int)Math.Round(DateTime.Now.Subtract(img.LastView).TotalDays);
-                var dnext = (int)Math.Round(DateTime.Now.Subtract(imgnext.LastView).TotalDays);
-                var d = Math.Min(dimg, dnext);
-                var v = img.Verified ? 1 : 0;
-                if (list[v] == null) {
-                    list[v] = new SortedList<int, List<Img>>();
+                if (imgN == null) {
+                    continue;
                 }
 
-                if (list[v].TryGetValue(d, out var e)) {
-                    e.Add(img);
+                if (imgX == null || imgN.LastView < imgX.LastView) {
+                    imgX = imgN;
                 }
-                else {
-                    list[v].Add(d, new List<Img> { img });
-                }
+            }
+
+            if (imgX == null) {
+                return null;
+            }
+
+            return imgX.Hash;
+        }
+    }
+
+    public static void UpdateNext(Img imgX, IProgress<string>? progress)
+    {
+        var hf = imgX.GetHistory();
+        foreach (var f in hf) {
+            var fs = GetFamilySize(f);
+            if (fs == 0) {
+                imgX.RemoveFromHistory(f);
             }
         }
 
-        var rv = AppVars.RandomNext(10) > 0 ? 0 : 1;
-        if (list[rv] == null) {
-            rv = 1 - rv;
+        var beam = AppImgs.GetBeam(imgX);
+        var next = beam[0].Item1.Hash;
+        var distance = beam[0].Item2;
+        var olddistance = imgX.Distance;
+        var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgX.LastCheck));
+        if (!imgX.Next.Equals(next) || Math.Abs(imgX.Distance - distance) >= 0.0001f) {
+            progress!.Report($" [{lastcheck} ago] {olddistance:F4} {AppConsts.CharRightArrow} {distance:F4}");
+            imgX.SetNext(next);
+            imgX.SetDisnance(distance);
         }
 
-        var lrv = list[rv].ToList();
-        lrv.Reverse();
+        imgX.UpdateLastCheck();
+    }
 
+    public static string? GetY(Img imgX, IProgress<string>? progress)
+    {
         var sb = new StringBuilder();
-        var gmax = Math.Min(3, list[rv].Count);
-        for (var i = 0; i < gmax; i++) {
-            if (i > 0) {
-                sb.Append("/");
-            }
-
-            var e = lrv[i];
-
-            sb.Append(rv > 0 ? "" : "n");
-            sb.Append(e.Key);
-            sb.Append(':');
-            sb.Append(e.Value.Count);
-        }
-
-        sb.Append($"/{AppConsts.CharEllipsis}/");
         lock (_lock) {
             var diff = _imgList.Count - AppVars.MaxImages;
             sb.Append($"{_imgList.Count} ({diff})");
         }
-        */
 
-        /*
+        sb.Append($" {imgX.Distance:F4}");
         Status = sb.ToString();
 
-        List<Img> g;
-        if (lrv.Count == 1) {
-            g = lrv[0].Value;
-        }
-        else {
-            var rnd = AppVars.RandomNext(lrv.Count - 1);
-            g = lrv[rnd].Value;
-        }
-
-        //var r = AppVars.RandomNext(g.Count);
-        //var imgX = g[r];
-        var imgX = g.MaxBy(e => e.LastCheck);
-        return imgX;
-        */
-
-        /*
-        if (_recent.Count == 0) {
-            _recent.Add(list[list.Count - 1].Item1.GetVector());
-        }
-
-        var amax = Math.Min(2000, list.Count);
-        var distances = new float[amax, _recent.Count];
-        Parallel.For(0, amax, i => {
-            var img = list[i];
-            Parallel.For(0, _recent.Count, j => { distances[i, j] = AppVit.GetDistance(list[i].Item1.GetVector(), _recent[j]); });
-        });
-
-        var imgX = list[0].Item1;
-        var maxDistance = 0f;
-        for (var i = 0; i < amax; i++) {
-            var minDistance = distances[i, 0];
-            for (var j = 1; j < _recent.Count; j++) {
-                if (distances[i, j] < minDistance) {
-                    minDistance = distances[i, j];
-                }
-            }
-             if (minDistance > maxDistance) {
-                maxDistance = minDistance;
-                imgX = list[i].Item1;
+        if (TryGet(imgX.Next, out var imgY)) {
+            if (imgY!.Family == 0) {
+                imgY.SetFamily(AppImgs.GetNextFamily());
             }
         }
 
-        _recent.Add(imgX.GetVector());
-        while (_recent.Count > 200) {
-            _recent.RemoveAt(0);
-        }
-        */
-        /*
-        list = list
-            .OrderBy(e => e.Verified)
-            .ThenBy(e => e.Score)
-            .Take(10000)
-            .ToList();
-
-        var w = new double[list.Count];
-        var wsum = 0.0;
-        var maxlv = list.Max(e => e.LastView.Ticks / (double)TimeSpan.TicksPerDay);
-        for (var i = 0; i < list.Count; i++) {
-            var diff = maxlv - (list[i].LastView.Ticks / (double)TimeSpan.TicksPerDay);
-            w[i] = diff * diff;
-            wsum += w[i];
-        }
-
-        for (var i = 0; i < list.Count; i++) {
-            w[i] /= wsum;
-        }
-
-        var random = AppVars.RandomDouble();
-        var a = 0;
-        for (a = 0; a < list.Count; a++) {
-            if (random < w[a]) {
-                break;
-            }
-
-            random -= w[a];
-        }
-
-        sb.Append($" a:{a}");
-        Status = sb.ToString();
-
-        var imgX = list[a];
-        */
-
-        /*
-        Img[] recent;
-        lock (_lock) {
-            recent = _imgList.Values.OrderByDescending(e => e.LastView).Take(256).ToArray();
-        }
-        */
-
-        /*
-        var minVerified = list.Min(e => e.Verified);
-        list = list.Where(e => e.Verified == minVerified).ToList();
-        var minScore = list.Min(e => e.Score);
-        list = list.Where(e => e.Score == minScore).ToList();
-        */
-
-        /*
-        list = list
-            .OrderBy(e => e.Verified)
-            .ThenBy(e => e.Score)
-            .Take(10000)
-            .ToList();
-        var distances = new float[list.Count, recent.Length];
-        Parallel.For(0, list.Count, i => {
-            var img = list[i];
-            Parallel.For(0, recent.Length, j => { distances[i, j] = AppVit.GetDistance(img.Vector, recent[j].Vector); });
-        });
-
-        var imgX = list[0];
-        var maxDistance = 0f;
-        for (var i = 0; i < list.Count; i++) {
-            var minDistance = distances[i, 0];
-            for (var j = 1; j < recent.Length; j++) {
-                if (distances[i, j] < minDistance) {
-                    minDistance = distances[i, j];
-                }
-            }
-            if (minDistance > maxDistance) {
-                maxDistance = minDistance;
-                imgX = list[i];
-            }
-        }
-        */
-
-
-        /*
-        var minVerified = list.Min(x => x.Verified); 
-        list = list.Where(x => x.Verified == minVerified).ToList();
-        var minScore = list.Min(x => x.Score);
-        list = list.Where(x => x.Score == minScore).ToList();
-
-        var imgX = list.MinBy(e => e.LastView.AddMinutes(AppVars.GetRandomIndex(60*24*7)));
-        */
-        /*
-        var distances = new float[list.Count];
-        Parallel.For(0, distances.Length, i => { distances[i] = AppVit.GetDistance(_lastVector, list[i].Vector); });
-
-        // find i where distances[i] is minimal
-
-        var minIndex = 0;
-        var minDistance = distances[0];
-        for (var i = 1; i < distances.Length; i++) {
-            if (distances[i] < minDistance) {
-                minDistance = distances[i];
-                minIndex = i;
-            }
-        }
-
-        var imgX = list[minIndex];
-        Array.Copy(list[minIndex].Vector, _lastVector, list[minIndex].Vector.Length);
-        */
-
-        /*
-        var imgX = list[0];
-        for (var a = 0; a < 10000; a++) {
-            var randomIndex = AppVars.GetRandomIndex(list.Count);
-            var img = list[randomIndex];
-            if (imgX.Verified && !img.Verified) {
-                imgX = img;
-            }
-            else if (!imgX.Verified && img.Verified) {
-                continue;
-            }
-            else if (imgX.Score > img.Score) {
-                imgX = img;
-            }
-            else if (imgX.Score < img.Score) {
-                continue;
-            }
-            else if (imgX.LastView > img.LastView) {
-                imgX = img;
-            }
-        }
-        */
+        return imgX.Next;
     }
 }

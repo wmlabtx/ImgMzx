@@ -32,6 +32,7 @@
         public const string AttributeScore = "score";
         public const string AttributeLastCheck = "lastcheck";
         public const string AttributeHistory = "history";
+        public const string AttributeFamily = "family";
 
         public const string TableVars = "vars";
         public const string AttributeMaxImages = "maximages";
