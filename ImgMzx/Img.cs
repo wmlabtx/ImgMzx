@@ -19,17 +19,15 @@ namespace ImgMzx
         public int Score { get; private set; }
         public string Next { get; private set; }
         public float Distance { get; private set; }
-        public int Family { get; private set; }
+        public string Family { get; private set; }
 
         private float[] _vector;
-        private SortedSet<int> _history;
 
         public Img(
             string hash,
             string name,
             float[] vector,
             DateTime lastview,
-            SortedSet<int> history,
             RotateMode rotatemode = RotateMode.None,
             FlipMode flipmode = FlipMode.None,
             bool verified = false,
@@ -37,7 +35,7 @@ namespace ImgMzx
             float distance = float.MaxValue,
             int score = 0,
             DateTime lastcheck = default,
-            int family = 0
+            string family = ""
             )
         {
             Hash = hash;
@@ -50,21 +48,14 @@ namespace ImgMzx
             Distance = distance;
             Score = score;
             LastCheck = lastcheck;
-            Family = family;
+            Family = string.IsNullOrEmpty(family) ? name : family;
 
             _vector = vector;
-
-            _history = new SortedSet<int>(history);
         }
 
         public float[] GetVector()
         {
             return _vector;
-        }
-
-        public byte[] GetRawHistory()
-        {
-            return Helper.ArrayFromInt(_history.ToArray<int>());
         }
 
         public long GetRawLastCheck()
@@ -136,36 +127,7 @@ namespace ImgMzx
             AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeDistance, distance);
         }
 
-        public void AddToHistory(int family)
-        {
-            if (_history.Add(family)) {
-                AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeHistory, GetRawHistory());
-            }
-        }
-
-        public void RemoveFromHistory(int family)
-        {
-            if (_history.Remove(family)) {
-                AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeHistory, GetRawHistory());
-            }
-        }
-
-        public bool IsInHistory(int family)
-        {
-            return _history.Contains(family);
-        }
-
-        public int GetHistorySize()
-        {
-            return _history.Count;
-        }
-
-        public SortedSet<int> GetHistory()
-        {
-            return new SortedSet<int>(_history);
-        }
-
-        public void SetFamily(int family)
+        public void SetFamily(string family)
         {
             Family = family;
             AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeFamily, family);

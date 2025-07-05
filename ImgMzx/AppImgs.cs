@@ -17,15 +17,23 @@ public static class AppImgs
     private static SqliteConnection _sqlConnection = new();
     private static SortedList<string, Img> _imgList = new(); // hash/img
     private static SortedList<string, string> _nameList = new(); // name/hash
+    private static SortedList<string, List<string>> _pairList = new(); // name/hash
 
     public static string Status { get; private set; } = string.Empty;
 
     public static void Load(string filedatabase, IProgress<string>? progress, out int maxImages)
     {
-        AppDatabase.Load(filedatabase, progress, out SortedList<string, Img> imgList, out SortedList<string, string> nameList, out maxImages);
+        AppDatabase.Load(
+            filedatabase, 
+            progress, 
+            out SortedList<string, Img> imgList, 
+            out SortedList<string, string> nameList, 
+            out SortedList<string, List<string>> pairList,
+            out maxImages);
         lock (_lock) {
             _imgList = imgList;
             _nameList = nameList;
+            _pairList = pairList;
         }
     }
 
@@ -97,6 +105,10 @@ public static class AppImgs
                     if (img != null) {
                         _nameList.Remove(img.Name);
                         AppDatabase.Delete(key);
+                        var familySize = GetFamilySize(img.Family);
+                        if (familySize == 0) {
+                            AppDatabase.DeletePair(img.Family);
+                        }
                     }
                 }
             }
@@ -105,6 +117,10 @@ public static class AppImgs
                     if (img != null) {
                         _imgList.Remove(img.Hash);
                         AppDatabase.Delete(img.Hash);
+                        var familySize = GetFamilySize(img.Family);
+                        if (familySize == 0) {
+                            AppDatabase.DeletePair(img.Family);
+                        }
                     }
 
                     _nameList.Remove(key);
@@ -130,21 +146,9 @@ public static class AppImgs
 
     public static Tuple<Img, float>[] GetBeam(Img img)
     {
-        List<Img> shadow = new();
+        List<Img> shadow;
         lock (_lock) {
-            foreach (var e in _imgList.Values) {
-                if (e.Hash.Equals(img.Hash)) {
-                    continue;
-                }
-
-                if (img.Family > 0 && e.Family > 0) {
-                    if (e.Family == img.Family || img.IsInHistory(e.Family)) {
-                        continue;
-                    }
-                }
-
-                shadow.Add(e);
-            }
+            shadow = new List<Img>(_imgList.Values);
         }
 
         var distances = new float[shadow.Count];
@@ -166,32 +170,25 @@ public static class AppImgs
         }
     }
 
-    public static int GetFamilySize(int family)
+    public static int GetFamilySize(string family)
     {
         lock (_lock) {
-            return _imgList.Count(e => e.Value.Family == family);
+            return _imgList.Count(e => e.Value.Family.Equals(family));
         }
     }
 
-    public static List<string> GetFamily(int family)
+    public static List<string> GetFamily(string family)
     {
         lock (_lock) {
-            return _imgList.Where(e => e.Value.Family == family).Select(e => e.Value.Name).ToList();
+            return _imgList.Where(e => e.Value.Family.Equals(family)).Select(e => e.Value.Name).ToList();
         }
     }
 
-    public static int GetNextFamily()
-    {
-        lock (_lock) {
-            return _imgList.Max(e => e.Value.Family) + 1;
-        }
-    }
-
-    public static void MoveFamily(int s, int d)
+    public static void MoveFamily(string s, string d)
     {
         lock (_lock) {
             foreach (var img in _imgList.Values) {
-                if (img.Family == s) {
+                if (img.Family.Equals(s)) {
                     img.SetFamily(d);
                 }
             }
@@ -201,42 +198,8 @@ public static class AppImgs
     public static Img? GetX(IProgress<string>? progress)
     {
         lock (_lock) {
-            /*
-            var scope = _imgList.Where(e => e.Value.GetHistorySize() < 10).ToArray();
-            var maxHistorySize = scope.Max(e => e.Value.GetHistorySize());
-            scope = scope.Where(e => e.Value.GetHistorySize() == maxHistorySize).ToArray();
-
-            var r = AppVars.RandomNext(scope.Length);
-            var imgX = scope.ElementAt(r).Value;
-              */
-            
-            /*
-            foreach (var img in _imgList.Values) {
-                if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
-                    AppImgs.UpdateNext(img, progress);
-                }
-            }
-            */
-            
-            var m = AppVars.RandomNext(10);
             var bins = new SortedList<int, List<Img>>();
             foreach (var img in _imgList.Values) {
-                if (m < 8) {
-                    if (img.Family == 0) {
-                        continue;
-                    }
-                }
-                else if (m == 8) {
-                    if (img.Family > 0) {
-                        continue;
-                    }
-                }
-                else if (m == 9) {
-                    if (img.Verified) {
-                        continue;
-                    }
-                }
-
                 var age = (int)Math.Round(DateTime.Now.Subtract(img.LastView).TotalDays);
                 if (age > 0) {
                     if (bins.TryGetValue(age, out var list)) {
@@ -257,11 +220,7 @@ public static class AppImgs
             var orderedRank = rank.OrderByDescending(x => x.Item2).ToList();
             var agewinner = orderedRank[0].Item1;
             var r = AppVars.RandomNext(bins[agewinner].Count);
-            var imgX = bins[agewinner][r];
-            if (imgX.Family == 0) {
-                imgX.SetFamily(AppImgs.GetNextFamily());
-            }
-           
+            var imgX = bins[agewinner][r];           
             return imgX;
         }
     }
@@ -274,10 +233,6 @@ public static class AppImgs
             }
 
             if (img == null) {
-                return null;
-            }
-
-            if (img.Family == 0) {
                 return null;
             }
 
@@ -310,17 +265,18 @@ public static class AppImgs
 
     public static void UpdateNext(Img imgX, IProgress<string>? progress)
     {
-        var hf = imgX.GetHistory();
-        foreach (var f in hf) {
-            var fs = GetFamilySize(f);
-            if (fs == 0) {
-                imgX.RemoveFromHistory(f);
-            }
+        var pairs = GetPairs(imgX.Family);
+        var beam = AppImgs.GetBeam(imgX);
+        var index = 0;
+        while (
+            beam[index].Item1.Hash.Equals(imgX.Hash) || 
+            beam[index].Item1.Family.Equals(imgX.Family) ||
+            pairs.Contains(beam[index].Item1.Family)) {
+            index++;
         }
 
-        var beam = AppImgs.GetBeam(imgX);
-        var next = beam[0].Item1.Hash;
-        var distance = beam[0].Item2;
+        var next = beam[index].Item1.Hash;
+        var distance = beam[index].Item2;
         var olddistance = imgX.Distance;
         var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgX.LastCheck));
         if (!imgX.Next.Equals(next) || Math.Abs(imgX.Distance - distance) >= 0.0001f) {
@@ -342,13 +298,45 @@ public static class AppImgs
 
         sb.Append($" {imgX.Distance:F4}");
         Status = sb.ToString();
+        return imgX.Next;
+    }
 
-        if (TryGet(imgX.Next, out var imgY)) {
-            if (imgY!.Family == 0) {
-                imgY.SetFamily(AppImgs.GetNextFamily());
+    private static void AddPairInternal(string familyX, string familyY)
+    {
+        lock (_lock) { 
+            if (_pairList.TryGetValue(familyX, out var edges)) {
+                if (!edges.Contains(familyY)) {
+                    edges.Add(familyY);
+                    while (edges.Count > AppConsts.MaxPairs) {
+                        edges.RemoveAt(0);
+                    }
+
+                    AppDatabase.UpdatePair(familyX, edges);
+                }
+            }
+            else {
+                edges = new List<string>() { familyY };
+                _pairList.Add(familyX, edges);
+                AppDatabase.AddPair(familyX, edges);
             }
         }
+    }
 
-        return imgX.Next;
+    public static void AddPair(string familyX, string familyY)
+    {
+        AddPairInternal(familyX, familyY);
+        AddPairInternal(familyY, familyX);
+    }
+
+    public static string[] GetPairs(string family)
+    {
+        lock (_lock) {
+            if (_pairList.TryGetValue(family, out var edges)) {
+                return edges.ToArray();
+            }
+            else {
+                return Array.Empty<string>();
+            }
+        }
     }
 }

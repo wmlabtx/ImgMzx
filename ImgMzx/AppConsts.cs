@@ -11,6 +11,7 @@
         public const string PathRawProtected = @"M:\raw";
 
         public const int MaxImportFiles = 100;
+        public const int MaxPairs = 100;
 
         public const char CharEllipsis = '\u2026';
         public const char CharRightArrow = '\u2192';
@@ -31,8 +32,10 @@
         public const string AttributeNext = "next";
         public const string AttributeScore = "score";
         public const string AttributeLastCheck = "lastcheck";
-        public const string AttributeHistory = "history";
         public const string AttributeFamily = "family";
+
+        public const string TablePairs = "pairs";
+        public const string AttributeEdges = "edges";
 
         public const string TableVars = "vars";
         public const string AttributeMaxImages = "maximages";

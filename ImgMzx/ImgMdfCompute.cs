@@ -121,7 +121,6 @@ public static partial class ImgMdf
             hash: hash,
             name: name,
             vector: vector,
-            history: new SortedSet<int>(),
             rotatemode: RotateMode.None,
             flipmode: FlipMode.None,
             lastview: lastview,
@@ -129,7 +128,8 @@ public static partial class ImgMdf
             next: string.Empty,
             distance: float.MaxValue,
             score: 0,
-            lastcheck: new DateTime(1980, 1, 1)
+            lastcheck: new DateTime(1980, 1, 1),
+            family: name
         );
 
         AppImgs.Add(imgnew);

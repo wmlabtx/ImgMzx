@@ -1,6 +1,7 @@
 ﻿using SixLabors.ImageSharp.Processing;
 using System.Diagnostics;
 using System.IO;
+using System.Security.Policy;
 
 namespace ImgMzx
 {

@@ -3,6 +3,7 @@ using SixLabors.ImageSharp.Processing;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Policy;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -13,7 +14,13 @@ public static class AppDatabase
     private static readonly object _lock = new();
     private static SqliteConnection _sqlConnection = new();
 
-    public static void Load(string filedatabase, IProgress<string>? progress, out SortedList<string, Img> imgList, out SortedList<string, string> nameList, out int maxImages)
+    public static void Load(
+        string filedatabase, 
+        IProgress<string>? progress, 
+        out SortedList<string, Img> imgList, 
+        out SortedList<string, string> nameList,
+        out SortedList<string, List<string>> pairList,
+        out int maxImages)
     {       
         lock (_lock) {
             var connectionString = $"Data Source={filedatabase};";
@@ -21,6 +28,7 @@ public static class AppDatabase
             _sqlConnection.Open();
 
             LoadImages(progress, out imgList, out nameList);
+            LoadPairs(progress, out pairList);
             LoadVars(progress, out maxImages);
         }
     }
@@ -45,8 +53,7 @@ public static class AppDatabase
         sb.Append($"{AppConsts.AttributeDistance},"); // 8
         sb.Append($"{AppConsts.AttributeScore},"); // 9
         sb.Append($"{AppConsts.AttributeLastCheck},"); // 10
-        sb.Append($"{AppConsts.AttributeHistory},"); // 11
-        sb.Append($"{AppConsts.AttributeFamily}"); // 12
+        sb.Append($"{AppConsts.AttributeFamily}"); // 11
         sb.Append($" FROM {AppConsts.TableImages};");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
         using var reader = sqlCommand.ExecuteReader();
@@ -64,14 +71,12 @@ public static class AppDatabase
                 var distance = reader.GetFloat(8);
                 var score = (int)reader.GetInt64(9);
                 var lastcheck = DateTime.FromBinary(reader.GetInt64(10));
-                var history = new SortedSet<int>(Helper.ArrayToInt((byte[])reader[11]));
-                var family = (int)reader.GetInt64(12);
+                var family = reader.GetString(11);
 
                 var img = new Img(
                     hash: hash,
                     name: name,
                     vector: vector,
-                    history: history,
                     rotatemode: rotatemode,
                     flipmode: flipmode,
                     lastview: lastview,
@@ -93,6 +98,37 @@ public static class AppDatabase
                 dtn = DateTime.Now;
                 var count = imgList.Count;
                 progress?.Report($"Loading images ({count}){AppConsts.CharEllipsis}");
+            }
+        }
+    }
+
+    private static void LoadPairs(
+        IProgress<string>? progress,
+        out SortedList<string, List<string>> pairList)
+    {
+        pairList = new SortedList<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var sb = new StringBuilder();
+        sb.Append("SELECT ");
+        sb.Append($"{AppConsts.AttributeFamily},"); // 0
+        sb.Append($"{AppConsts.AttributeEdges}"); // 1
+        sb.Append($" FROM {AppConsts.TablePairs};");
+        using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
+        using var reader = sqlCommand.ExecuteReader();
+        if (reader.HasRows) {
+            var dtn = DateTime.Now;
+            while (reader.Read()) {
+                var family = reader.GetString(0);
+                var edges = reader.GetString(1);
+                var edgeList = string.IsNullOrEmpty(edges) ? new List<string>() : edges.Split(',').ToList();
+                pairList.Add(family, edgeList);
+
+                if (!(DateTime.Now.Subtract(dtn).TotalMilliseconds > AppConsts.TimeLapse)) {
+                    continue;
+                }
+
+                dtn = DateTime.Now;
+                var count = pairList.Count;
+                progress?.Report($"Loading pairs ({count}){AppConsts.CharEllipsis}");
             }
         }
     }
@@ -135,7 +171,6 @@ public static class AppDatabase
                 sb.Append($"{AppConsts.AttributeDistance},");
                 sb.Append($"{AppConsts.AttributeScore},");
                 sb.Append($"{AppConsts.AttributeLastCheck},");
-                sb.Append($"{AppConsts.AttributeHistory},");
                 sb.Append($"{AppConsts.AttributeFamily}");
                 sb.Append(") VALUES (");
                 sb.Append($"@{AppConsts.AttributeHash},");
@@ -149,7 +184,6 @@ public static class AppDatabase
                 sb.Append($"@{AppConsts.AttributeDistance},");
                 sb.Append($"@{AppConsts.AttributeScore},");
                 sb.Append($"@{AppConsts.AttributeLastCheck},");
-                sb.Append($"@{AppConsts.AttributeHistory},");
                 sb.Append($"@{AppConsts.AttributeFamily}");
                 sb.Append(')');
                 sqlCommand.CommandText = sb.ToString();
@@ -164,7 +198,6 @@ public static class AppDatabase
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeScore}", img.Score);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.GetRawLastCheck());
-                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHistory}", img.GetRawHistory());
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", img.Family);
                 sqlCommand.ExecuteNonQuery();
             }
@@ -206,6 +239,54 @@ public static class AppDatabase
             sqlCommand.CommandText =
                 $"UPDATE {AppConsts.TableVars} SET {AppConsts.AttributeMaxImages} = @{AppConsts.AttributeMaxImages}";
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeMaxImages}", AppVars.MaxImages);
+            sqlCommand.ExecuteNonQuery();
+        }
+    }
+
+    public static void AddPair(string family, List<string> edges)
+    {
+        lock (_lock) {
+            using (var sqlCommand = _sqlConnection.CreateCommand()) {
+                sqlCommand.Connection = _sqlConnection;
+                var sb = new StringBuilder();
+                sb.Append($"INSERT INTO {AppConsts.TablePairs} (");
+                sb.Append($"{AppConsts.AttributeFamily},");
+                sb.Append($"{AppConsts.AttributeEdges}");
+                sb.Append(") VALUES (");
+                sb.Append($"@{AppConsts.AttributeFamily},");
+                sb.Append($"@{AppConsts.AttributeEdges}");
+                sb.Append(')');
+                sqlCommand.CommandText = sb.ToString();
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", family);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeEdges}", string.Join(',', edges));
+                sqlCommand.ExecuteNonQuery();
+            }
+        }
+    }
+
+    public static void UpdatePair(string family, List<string> edges)
+    {
+        lock (_lock) {
+            using (var sqlCommand = _sqlConnection.CreateCommand()) {
+                sqlCommand.Connection = _sqlConnection;
+                sqlCommand.CommandText =
+                    $"UPDATE {AppConsts.TablePairs} SET {AppConsts.AttributeEdges} = @{AppConsts.AttributeEdges} WHERE {AppConsts.AttributeFamily} = @{AppConsts.AttributeFamily}";
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", family);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeEdges}", string.Join(',', edges));
+                sqlCommand.ExecuteNonQuery();
+            }
+        }
+    }
+
+    public static void DeletePair(string family)
+    {
+        lock (_lock) {
+            using var sqlCommand = _sqlConnection.CreateCommand();
+            sqlCommand.Connection = _sqlConnection;
+            sqlCommand.CommandText =
+                $"DELETE FROM {AppConsts.TablePairs} WHERE {AppConsts.AttributeFamily} = @{AppConsts.AttributeFamily}";
+            sqlCommand.Parameters.Clear();
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", family);
             sqlCommand.ExecuteNonQuery();
         }
     }

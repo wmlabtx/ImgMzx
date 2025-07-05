@@ -153,13 +153,13 @@ namespace ImgMzx
                     sb.Append($" +{panels[index]!.Img.Score}");
                 }
 
-                var historySize = panels[index]!.Img.GetHistorySize();
-                if (historySize > 0) {
-                    sb.Append($" [{historySize}]");
+                var pairs = AppImgs.GetPairs(panels[index]!.Img.Family);
+                if (pairs.Length > 0) {
+                    sb.Append($" [{pairs.Length}]");
                 }
 
-                if (panels[index]!.Img.Family > 0) {
-                    var familySize = AppImgs.GetFamilySize(panels[index]!.Img.Family);
+                var familySize = AppImgs.GetFamilySize(panels[index]!.Img.Family);
+                if (familySize > 1) {
                     sb.Append($" [{panels[index]!.Img.Family}:{familySize}]");
                 }
 
@@ -183,10 +183,10 @@ namespace ImgMzx
                 if (!panels[index]!.Img.Verified) {
                     pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
                 }
-                else if (panels[index]!.Img.Family > 0 && panels[index]!.Img.Family == panels[1 - index]!.Img.Family) {
+                else if (panels[index]!.Img.Family.Equals(panels[1 - index]!.Img.Family)) {
                     pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
-                }
-                else if (historySize > 0) {
+                 }
+                else if (pairs.Length > 0) {
                     pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
                 }
             }
@@ -296,26 +296,16 @@ namespace ImgMzx
             AppPanels.UpdateRightPanel(AppVars.Progress);
             DrawCanvas();
             EnableElements();
-        }
+         }
 
         private void FamilyAddClick()
         {
             DisableElements();
             var imgX = AppPanels.GetImgPanel(0)!.Img;
             var imgY = AppPanels.GetImgPanel(1)!.Img;
-            if (imgX.Family == 0 && imgY.Family == 0) {
-                var family = AppImgs.GetNextFamily();
-                imgX.SetFamily(family);
-                imgY.SetFamily(family);
-            }
-            else if (imgX.Family > 0 && imgY.Family == 0) {
-                imgY.SetFamily(imgX.Family);
-            }
-            else if (imgX.Family == 0 && imgY.Family > 0) {
-                imgX.SetFamily(imgY.Family);
-            }
-            else if (imgX.Family != imgY.Family) {
-                var family = Math.Min(imgX.Family, imgY.Family);
+            var c = string.Compare(imgX.Family, imgY.Family, StringComparison.Ordinal);
+            if (c != 0) {
+                var family = c < 0 ? imgX.Family : imgY.Family;
                 if (imgX.Family != family) {
                     AppImgs.MoveFamily(imgX.Family, family);
                 }
@@ -333,11 +323,12 @@ namespace ImgMzx
             DisableElements();
             var imgX = AppPanels.GetImgPanel(0)!.Img;
             var imgY = AppPanels.GetImgPanel(1)!.Img;
-            if (imgX.Family != 0 && imgX.Family == imgY.Family) {
-                var size = AppImgs.GetFamilySize(imgX.Family);
-                imgX.SetFamily(0);
-                if (size < 2) {
-                    imgY.SetFamily(0);
+            if (!imgX.Family.Equals(imgX.Name)) {
+                var family = imgX.Family;
+                imgX.SetFamily(imgX.Name);
+                var size = AppImgs.GetFamilySize(family);
+                if (size == 0) {
+                    AppDatabase.DeletePair(family);
                 }
             }
 
