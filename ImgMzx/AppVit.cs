@@ -53,8 +53,8 @@ public static class AppVit
     public static float[] GetVector(Image<Rgb24> image)
     {
         using var bitmap = AppBitmap.GetBitmap(image);
-        var tensor = new DenseTensor<float>(new[] { 1, 3, 224, 224 });
-        using (var b = ScaleAndCut(bitmap, 224, 16)) {
+        var tensor = new DenseTensor<float>(new[] { 1, 3, 448, 448 });
+        using (var b = ScaleAndCut(bitmap, 448, 16)) {
             var bitmapdata = b.LockBits(new Rectangle(0, 0, b.Width, b.Height), ImageLockMode.ReadOnly,
                 PixelFormat.Format24bppRgb);
             var stride = bitmapdata.Stride;
@@ -80,7 +80,7 @@ public static class AppVit
             });
         }
 
-        var container = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor("input", tensor) };
+        var container = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor("pixel_values", tensor) };
         var results = _session.Run(container);
         var vector = results[0].AsEnumerable<float>().ToArray();
         var norm = (float)Math.Sqrt(vector.Sum(t => t * t));
@@ -91,7 +91,6 @@ public static class AppVit
         return vector;
     }
 
-    /*
     public static float GetDistance(float[] x, float[] y)
     {
         if (x.Length == 0 || y.Length == 0 || x.Length != y.Length) {
@@ -102,8 +101,8 @@ public static class AppVit
         distance = 1f - distance;
         return distance;
     }
-    */
 
+    /*
     public static float GetDistance(float[] x, float[] y)
     {
         if (x.Length == 0 || y.Length == 0 || x.Length != y.Length) {
@@ -113,4 +112,5 @@ public static class AppVit
         var distance = (float)Math.Sqrt(x.Select((t, i) => (t - y[i]) * (t - y[i])).Sum());
         return distance;
     }
+    */
 }

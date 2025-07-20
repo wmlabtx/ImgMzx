@@ -45,6 +45,7 @@ public class AppFaceTest
         GetVector(basename, basevector, "gab_r90", out var v_r90);
         GetVector(basename, basevector, "gab_toside", out var v_toside);
         GetVector(basename, basevector, "gab_scale", out var v_scale);
+        GetVector(basename, basevector, "gab_xor", out var v_xor);
         GetVector(basename, basevector, "gab_sim1", out var v_sim1);
         GetVector(basename, basevector, "gab_sim2", out var v_sim2);
         GetVector(basename, basevector, "gab_nosim1", out var v_nosim1);
@@ -53,6 +54,8 @@ public class AppFaceTest
         GetVector(basename, basevector, "gab_nosim4", out var v_nosim4);
         GetVector(basename, basevector, "gab_nosim5", out var v_nosim5);
         GetVector(basename, basevector, "f2-1", out var v_f2_1);
+        GetVector(basename, basevector, "exif_nodt", out var v_exif_nodt);
+        GetVector(basename, basevector, "face", out var v_face_lowresolution);
 
         Assert.IsNotNull(v_f2_1);
         GetVector("f2-1", v_f2_1, "f2-2", out var v_f2_2);

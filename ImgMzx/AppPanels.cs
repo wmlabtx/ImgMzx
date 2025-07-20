@@ -128,7 +128,8 @@ public static class AppPanels
             imgX.SetScore(imgX.Score + 1);
             imgX.UpdateVerified();
 
-            AppImgs.AddPair(imgX.Family, imgY.Family);
+            imgY.UpdateLastView();
+            imgY.SetScore(imgY.Score + 1);
         }
     }
 

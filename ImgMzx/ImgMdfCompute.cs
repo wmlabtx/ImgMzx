@@ -128,8 +128,7 @@ public static partial class ImgMdf
             next: string.Empty,
             distance: float.MaxValue,
             score: 0,
-            lastcheck: new DateTime(1980, 1, 1),
-            family: name
+            lastcheck: new DateTime(1980, 1, 1)
         );
 
         AppImgs.Add(imgnew);

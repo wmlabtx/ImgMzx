@@ -19,23 +19,23 @@ namespace ImgMzx
         public int Score { get; private set; }
         public string Next { get; private set; }
         public float Distance { get; private set; }
-        public string Family { get; private set; }
 
         private float[] _vector;
+
+        public int MaxIndex { get; private set; }
 
         public Img(
             string hash,
             string name,
             float[] vector,
             DateTime lastview,
-            RotateMode rotatemode = RotateMode.None,
-            FlipMode flipmode = FlipMode.None,
-            bool verified = false,
-            string next = "",
-            float distance = float.MaxValue,
-            int score = 0,
-            DateTime lastcheck = default,
-            string family = ""
+            RotateMode rotatemode,
+            FlipMode flipmode,
+            bool verified,
+            string next,
+            float distance,
+            int score,
+            DateTime lastcheck
             )
         {
             Hash = hash;
@@ -48,9 +48,9 @@ namespace ImgMzx
             Distance = distance;
             Score = score;
             LastCheck = lastcheck;
-            Family = string.IsNullOrEmpty(family) ? name : family;
 
             _vector = vector;
+            MaxIndex = GetMaxVectorIndex();
         }
 
         public float[] GetVector()
@@ -88,6 +88,7 @@ namespace ImgMzx
         public void SetVector(float[] vector)
         {
             _vector = vector;
+            MaxIndex = GetMaxVectorIndex();
             AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeVector, GetRawVector());
         }
 
@@ -127,10 +128,24 @@ namespace ImgMzx
             AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeDistance, distance);
         }
 
-        public void SetFamily(string family)
+        public int GetMaxVectorIndex()
         {
-            Family = family;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeFamily, family);
+            if (_vector.Length == 0) {
+                return -1;
+            }
+                
+            var maxIndex = 0;
+            var maxValue = _vector[0];
+            for (var i = 1; i < _vector.Length; i++)
+            {
+                if (_vector[i] > maxValue)
+                {
+                    maxValue = _vector[i];
+                    maxIndex = i;
+                }
+            }
+
+            return maxIndex;
         }
     }
 }

@@ -17,7 +17,6 @@ public static class AppImgs
     private static SqliteConnection _sqlConnection = new();
     private static SortedList<string, Img> _imgList = new(); // hash/img
     private static SortedList<string, string> _nameList = new(); // name/hash
-    private static SortedList<string, List<string>> _pairList = new(); // name/hash
 
     public static string Status { get; private set; } = string.Empty;
 
@@ -28,12 +27,10 @@ public static class AppImgs
             progress, 
             out SortedList<string, Img> imgList, 
             out SortedList<string, string> nameList, 
-            out SortedList<string, List<string>> pairList,
             out maxImages);
         lock (_lock) {
             _imgList = imgList;
             _nameList = nameList;
-            _pairList = pairList;
         }
     }
 
@@ -105,10 +102,6 @@ public static class AppImgs
                     if (img != null) {
                         _nameList.Remove(img.Name);
                         AppDatabase.Delete(key);
-                        var familySize = GetFamilySize(img.Family);
-                        if (familySize == 0) {
-                            AppDatabase.DeletePair(img.Family);
-                        }
                     }
                 }
             }
@@ -117,10 +110,6 @@ public static class AppImgs
                     if (img != null) {
                         _imgList.Remove(img.Hash);
                         AppDatabase.Delete(img.Hash);
-                        var familySize = GetFamilySize(img.Family);
-                        if (familySize == 0) {
-                            AppDatabase.DeletePair(img.Family);
-                        }
                     }
 
                     _nameList.Remove(key);
@@ -151,6 +140,8 @@ public static class AppImgs
             shadow = new List<Img>(_imgList.Values);
         }
 
+        shadow.Remove(img);
+
         var distances = new float[shadow.Count];
         var vx = img.GetVector();
         Parallel.For(0, distances.Length, i => { distances[i] = AppVit.GetDistance(vx, shadow[i].GetVector()); });
@@ -170,38 +161,23 @@ public static class AppImgs
         }
     }
 
-    public static int GetFamilySize(string family)
-    {
-        lock (_lock) {
-            return _imgList.Count(e => e.Value.Family.Equals(family));
-        }
-    }
-
-    public static List<string> GetFamily(string family)
-    {
-        lock (_lock) {
-            return _imgList.Where(e => e.Value.Family.Equals(family)).Select(e => e.Value.Name).ToList();
-        }
-    }
-
-    public static void MoveFamily(string s, string d)
-    {
-        lock (_lock) {
-            foreach (var img in _imgList.Values) {
-                if (img.Family.Equals(s)) {
-                    img.SetFamily(d);
-                }
-            }
-        }
-    }
-
     public static Img? GetX(IProgress<string>? progress)
     {
         lock (_lock) {
             var bins = new SortedList<int, List<Img>>();
             foreach (var img in _imgList.Values) {
                 var age = (int)Math.Round(DateTime.Now.Subtract(img.LastView).TotalDays);
-                if (age > 0) {
+                if (bins.TryGetValue(age, out var list)) {
+                    list.Add(img);
+                }
+                else {
+                    bins.Add(age, new List<Img>() { img });
+                }
+            }
+
+            if (bins.Count == 0) {
+                foreach (var img in _imgList.Values) {
+                    var age = (int)Math.Round(DateTime.Now.Subtract(img.LastView).TotalDays);
                     if (bins.TryGetValue(age, out var list)) {
                         list.Add(img);
                     }
@@ -210,73 +186,41 @@ public static class AppImgs
                     }
                 }
             }
-            
+
+            var minAge = bins.Keys.Min();
+            var maxAge = bins.Keys.Max();
+            var midAge = (maxAge - minAge) / 4;
+
             var rank = new List<Tuple<int, int>>();
             foreach (var e in bins.Keys) {
-                var agerandom = e + AppVars.RandomNext(365);
+                var agerandom = e + Random.Shared.Next(midAge);
                 rank.Add(Tuple.Create(e, agerandom));
             }
 
             var orderedRank = rank.OrderByDescending(x => x.Item2).ToList();
-            var agewinner = orderedRank[0].Item1;
-            var r = AppVars.RandomNext(bins[agewinner].Count);
-            var imgX = bins[agewinner][r];           
+            var ageWinner = orderedRank[0].Item1;
+            var binWinner = bins[ageWinner];
+            var r = Random.Shared.Next(binWinner.Count);
+            var imgX = binWinner[r];
             return imgX;
-        }
-    }
-
-    public static string? GetInTheSameFamily(string hash)
-    {
-        lock (_lock) {
-            if (!TryGet(hash, out var img)) {
-                return null;
-            }
-
-            if (img == null) {
-                return null;
-            }
-
-            var family = GetFamily(img.Family);
-            Img? imgX = null;
-            foreach (var name in family) {
-                if (name.Equals(img.Name)) {
-                    continue;
-                }
-                if (!TryGetByName(name, out Img? imgN)) {
-                    continue;
-                }
-
-                if (imgN == null) {
-                    continue;
-                }
-
-                if (imgX == null || imgN.LastView < imgX.LastView) {
-                    imgX = imgN;
-                }
-            }
-
-            if (imgX == null) {
-                return null;
-            }
-
-            return imgX.Hash;
         }
     }
 
     public static void UpdateNext(Img imgX, IProgress<string>? progress)
     {
-        var pairs = GetPairs(imgX.Family);
         var beam = AppImgs.GetBeam(imgX);
-        var index = 0;
-        while (
-            beam[index].Item1.Hash.Equals(imgX.Hash) || 
-            beam[index].Item1.Family.Equals(imgX.Family) ||
-            pairs.Contains(beam[index].Item1.Family)) {
-            index++;
+        var minDistance = beam.Min(t => t.Item2);
+        var maxDistance = beam.Max(t => t.Item2);
+        var midDistance = (maxDistance - minDistance) / 4f;
+        var rank = new List<Tuple<Img, float>>();
+        foreach (var e in beam) {
+            var randomDistance = e.Item2 + (float)(midDistance * Random.Shared.NextDouble());
+            rank.Add(Tuple.Create(e.Item1, randomDistance));
         }
 
-        var next = beam[index].Item1.Hash;
-        var distance = beam[index].Item2;
+        var orderedRank = rank.OrderBy(x => x.Item2).ToList();
+        var next = orderedRank[0].Item1.Hash;
+        var distance = orderedRank[0].Item2;
         var olddistance = imgX.Distance;
         var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgX.LastCheck));
         if (!imgX.Next.Equals(next) || Math.Abs(imgX.Distance - distance) >= 0.0001f) {
@@ -299,44 +243,5 @@ public static class AppImgs
         sb.Append($" {imgX.Distance:F4}");
         Status = sb.ToString();
         return imgX.Next;
-    }
-
-    private static void AddPairInternal(string familyX, string familyY)
-    {
-        lock (_lock) { 
-            if (_pairList.TryGetValue(familyX, out var edges)) {
-                if (!edges.Contains(familyY)) {
-                    edges.Add(familyY);
-                    while (edges.Count > AppConsts.MaxPairs) {
-                        edges.RemoveAt(0);
-                    }
-
-                    AppDatabase.UpdatePair(familyX, edges);
-                }
-            }
-            else {
-                edges = new List<string>() { familyY };
-                _pairList.Add(familyX, edges);
-                AppDatabase.AddPair(familyX, edges);
-            }
-        }
-    }
-
-    public static void AddPair(string familyX, string familyY)
-    {
-        AddPairInternal(familyX, familyY);
-        AddPairInternal(familyY, familyX);
-    }
-
-    public static string[] GetPairs(string family)
-    {
-        lock (_lock) {
-            if (_pairList.TryGetValue(family, out var edges)) {
-                return edges.ToArray();
-            }
-            else {
-                return Array.Empty<string>();
-            }
-        }
     }
 }
