@@ -26,7 +26,7 @@ public static class AppImgs
             filedatabase, 
             progress, 
             out SortedList<string, Img> imgList, 
-            out SortedList<string, string> nameList, 
+            out SortedList<string, string> nameList,
             out maxImages);
         lock (_lock) {
             _imgList = imgList;
@@ -122,7 +122,7 @@ public static class AppImgs
     {
         lock (_lock) {
             foreach (var img in _imgList.Values) {
-                if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
+                if (img.Name.Equals(img.Next) || !_nameList.ContainsKey(img.Next)) {
                     return img;
                 }
             }
@@ -133,25 +133,24 @@ public static class AppImgs
         }
     }
 
-    public static Tuple<Img, float>[] GetBeam(Img img)
+    public static List<Tuple<string, float>> GetBeam(Img img)
     {
         List<Img> shadow;
         lock (_lock) {
             shadow = new List<Img>(_imgList.Values);
+            shadow.Remove(img);
         }
-
-        shadow.Remove(img);
 
         var distances = new float[shadow.Count];
         var vx = img.GetVector();
         Parallel.For(0, distances.Length, i => { distances[i] = AppVit.GetDistance(vx, shadow[i].GetVector()); });
 
-        var beam = shadow
-            .Zip(distances, Tuple.Create)
-            .OrderBy(t => t.Item2)
-            .ToArray();
+        var beam = new List<Tuple<string, float>>(shadow.Count);
+        for (var i = 0; i < shadow.Count; i++) {
+            beam.Add(Tuple.Create(shadow[i].Name, distances[i]));
+        }
 
-        return beam;
+        return beam.OrderBy(e => e.Item2).ToList();
     }
 
     public static DateTime GetMinimalLastView()
@@ -164,8 +163,32 @@ public static class AppImgs
     public static Img? GetX(IProgress<string>? progress)
     {
         lock (_lock) {
+            var grouped = _imgList.Values
+                .Where(e => !e.Name.Equals(e.Next) && _nameList.ContainsKey(e.Next))
+                .Where(e => !string.IsNullOrEmpty(e.Key))
+                .GroupBy(e => e.Key)
+                .ToDictionary(g => g.Key, g => g.Max(e => e.LastView));
+            if (grouped.Count > 0) {
+                var key = grouped.MinBy(g => g.Value).Key;
+                var imgX = _imgList.Values
+                    .Where(e => e.Key.Equals(key))
+                    .MinBy(e => e.LastView);
+                return imgX;
+            }
+            else {
+                var imgX = _imgList.Values
+                    .Where(e => !e.Name.Equals(e.Next) && _nameList.ContainsKey(e.Next))
+                    .MinBy(e => e.LastView);
+                return imgX;
+            }
+
+            /*
             var bins = new SortedList<int, List<Img>>();
             foreach (var img in _imgList.Values) {
+                if (img.Name.Equals(img.Next) || !_nameList.ContainsKey(img.Next)) {
+                    continue;
+                }
+
                 var age = (int)Math.Round(DateTime.Now.Subtract(img.LastView).TotalDays);
                 if (bins.TryGetValue(age, out var list)) {
                     list.Add(img);
@@ -176,15 +199,7 @@ public static class AppImgs
             }
 
             if (bins.Count == 0) {
-                foreach (var img in _imgList.Values) {
-                    var age = (int)Math.Round(DateTime.Now.Subtract(img.LastView).TotalDays);
-                    if (bins.TryGetValue(age, out var list)) {
-                        list.Add(img);
-                    }
-                    else {
-                        bins.Add(age, new List<Img>() { img });
-                    }
-                }
+                return null;
             }
 
             var minAge = bins.Keys.Min();
@@ -203,36 +218,11 @@ public static class AppImgs
             var r = Random.Shared.Next(binWinner.Count);
             var imgX = binWinner[r];
             return imgX;
+            */
         }
     }
 
-    public static void UpdateNext(Img imgX, IProgress<string>? progress)
-    {
-        var beam = AppImgs.GetBeam(imgX);
-        var minDistance = beam.Min(t => t.Item2);
-        var maxDistance = beam.Max(t => t.Item2);
-        var midDistance = (maxDistance - minDistance) / 4f;
-        var rank = new List<Tuple<Img, float>>();
-        foreach (var e in beam) {
-            var randomDistance = e.Item2 + (float)(midDistance * Random.Shared.NextDouble());
-            rank.Add(Tuple.Create(e.Item1, randomDistance));
-        }
-
-        var orderedRank = rank.OrderBy(x => x.Item2).ToList();
-        var next = orderedRank[0].Item1.Hash;
-        var distance = orderedRank[0].Item2;
-        var olddistance = imgX.Distance;
-        var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgX.LastCheck));
-        if (!imgX.Next.Equals(next) || Math.Abs(imgX.Distance - distance) >= 0.0001f) {
-            progress!.Report($" [{lastcheck} ago] {olddistance:F4} {AppConsts.CharRightArrow} {distance:F4}");
-            imgX.SetNext(next);
-            imgX.SetDisnance(distance);
-        }
-
-        imgX.UpdateLastCheck();
-    }
-
-    public static string? GetY(Img imgX, IProgress<string>? progress)
+    public static string? GetYName(Img imgX, IProgress<string>? progress)
     {
         var sb = new StringBuilder();
         lock (_lock) {
@@ -242,6 +232,64 @@ public static class AppImgs
 
         sb.Append($" {imgX.Distance:F4}");
         Status = sb.ToString();
-        return imgX.Next;
+        lock (_lock) {
+            var nameY = imgX.Next;
+            var imgYHash = _nameList[nameY];
+            var imgY = _imgList[imgYHash];
+            /*
+            if (!string.IsNullOrEmpty(imgX.Key) && string.IsNullOrEmpty(imgY.Key)) {
+                imgY.SetKey(imgX.Key);
+            }
+            else if (string.IsNullOrEmpty(imgX.Key) && !string.IsNullOrEmpty(imgY.Key)) {
+                imgX.SetKey(imgY.Key);
+            }
+            */
+
+            return imgY.Name;
+        }
+    }
+
+    public static string[] GetKeys()
+    {
+        lock (_lock) {
+            return _imgList
+                .Where(e => !string.IsNullOrEmpty(e.Value.Key))
+                .GroupBy(e => e.Value.Key)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Key)
+                .ToArray();
+        }
+    }
+
+    public static string SuggestKey(Img img)
+    {
+        List<Img> shadow;
+        lock (_lock) {
+            shadow = new List<Img>(_imgList.Values);
+            shadow.Remove(img);
+        }
+
+        var keyGroups = shadow
+            .Where(e => !string.IsNullOrEmpty(e.Key))
+            .GroupBy(e => e.Key)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var bestKey = string.Empty;
+        var bestDistance = 2f;
+        var vx = img.GetVector();
+        foreach (var kvp in keyGroups) {
+            var key = kvp.Key;
+            var group = kvp.Value;
+            var groupDistances = new float[group.Count];
+            
+            Parallel.For(0, groupDistances.Length, i => { groupDistances[i] = AppVit.GetDistance(vx, group[i].GetVector()); });
+            var avgDistance = groupDistances.Order().Take(3).Average();
+            if (avgDistance < bestDistance) {
+                bestDistance = avgDistance;
+                bestKey = key;
+            }
+        }
+
+        return bestKey;
     }
 }

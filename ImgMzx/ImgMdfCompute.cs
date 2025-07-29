@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using SixLabors.ImageSharp.Processing;
 
 namespace ImgMzx;
@@ -128,7 +129,9 @@ public static partial class ImgMdf
             next: string.Empty,
             distance: float.MaxValue,
             score: 0,
-            lastcheck: new DateTime(1980, 1, 1)
+            lastcheck: new DateTime(1980, 1, 1),
+            history: string.Empty,
+            key: string.Empty
         );
 
         AppImgs.Add(imgnew);
@@ -193,7 +196,7 @@ public static partial class ImgMdf
                 ((IProgress<string>)AppVars.Progress).Report($"Imported a:{_added}/f:{_found}/b:{_bad}");
             }
         }
-/*
+
         var img = AppImgs.GetForCheck();
         Debug.Assert(img != null);
 
@@ -207,8 +210,8 @@ public static partial class ImgMdf
         }
         
         var hash = AppHash.GetHash(imagedata);
-        if (!hash.Equals(img.Hash) || img.GetVector().Length != 512) {
-            backgroundworker.ReportProgress(0, $"{img.Name}: fixing...");
+        if (!hash.Equals(img.Hash) || img.GetVector().Length != AppConsts.VectorSize) {
+            //backgroundworker.ReportProgress(0, $"{img.Name}: fixing...");
             using var image = AppBitmap.GetImage(imagedata);
             if (image == null) {
                 backgroundworker.ReportProgress(0, $"{img.Name}: image == null");
@@ -222,7 +225,6 @@ public static partial class ImgMdf
                     hash: hash,
                     name: img.Name,
                     vector: vector,
-                    history: img.GetHistory(),
                     rotatemode: img.RotateMode,
                     flipmode: img.FlipMode,
                     lastview: img.LastView,
@@ -230,7 +232,9 @@ public static partial class ImgMdf
                     next: string.Empty,
                     distance: float.MaxValue,
                     score: img.Score,
-                    lastcheck: img.LastCheck
+                    lastcheck: img.LastCheck,
+                    history: img.History,
+                    key: img.Key
                 );
 
                 AppImgs.Delete(img.Hash);
@@ -240,37 +244,70 @@ public static partial class ImgMdf
                 img = imgnew;
             }
             else {
-                if (img.GetVector().Length != 512) {
+                if (img.GetVector().Length != AppConsts.VectorSize) {
                     img.SetVector(vector);
                 }
             }
         }
 
-        var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
-        backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {img.Name}");
-        img.UpdateLastCheck();
+        var historySet = new SortedSet<string>();
+        if (img.History.Length > 0) {
+            var historyItems = img.History.Split(',');
+            foreach (var e in historyItems) {
+                if (AppImgs.TryGetByName(e, out _)) {
+                    historySet.Add(e);
+                }
+            }
 
-        /*
-        var history = img.GetHistory();
-        foreach (var h in history) {
-            if (!AppImgs.TryGetByName(h, out var imgnext)) {
-                img.RemoveFromHistory(h);
+            var historyNew = string.Join(',', historySet.ToArray());
+            if (!historyNew.Equals(img.History)) {
+                backgroundworker?.ReportProgress(0, $"{img.Name}: updating history");
+                img.SetHistory(historyNew);
             }
         }
 
         var beam = AppImgs.GetBeam(img);
-        var next = beam[0].Item1.Hash;
-        var distance = beam[0].Item2;
+        var i = 0;
+        while (i < beam.Count) {
+            if (!historySet.Contains(beam[i].Item1)) {
+                break;
+            }
+
+            i++;
+        }
+
+        var next = beam[i].Item1;
+        var distance = beam[i].Item2;
         var olddistance = img.Distance;
         var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
         if (!img.Next.Equals(next) || Math.Abs(img.Distance - distance) >= 0.0001f) {
-            Debug.Assert(!img.Next.Equals(hash));
             backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {img.Name}: {olddistance:F4} {AppConsts.CharRightArrow} {distance:F4}");
             img.SetNext(next);
-            img.SetDisnance(distance);
+            img.SetDistance(distance);
+        }
+
+        /*
+        if (AppImgs.TryGetByName(next, out var imgY)) {
+            Debug.Assert(imgY != null);
+            if (!string.IsNullOrEmpty(img.Key) && string.IsNullOrEmpty(imgY.Key)) {
+                backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {imgY.Name} {AppConsts.CharRightArrow} {img.Key}");
+                imgY.SetKey(img.Key);
+            }
+            else if (string.IsNullOrEmpty(img.Key) && !string.IsNullOrEmpty(imgY.Key)) {
+                backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {img.Name} {AppConsts.CharRightArrow} {imgY.Key}");
+                img.SetKey(imgY.Key);
+            }
+        }
+        */
+
+        if (!img.Verified) {
+            var key = AppImgs.SuggestKey(img);
+            if (!key.Equals(img.Key)) {
+                backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {img.Name} {AppConsts.CharRightArrow} {key}");
+                img.SetKey(key);
+            }
         }
 
         img.UpdateLastCheck();
-*/
     }
 }

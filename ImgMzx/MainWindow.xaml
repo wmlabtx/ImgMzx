@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:ImgMzx"
+        xmlns:xctk="http://schemas.xceed.com/wpf/xaml/toolkit"
         mc:Ignorable="d"
         Title="ImageBank" Height="446" Width="800" Loaded="WindowLoaded" WindowStartupLocation="Manual" Icon="/app.png" Cursor="Arrow" SizeToContent="Manual" ResizeMode="CanMinimize" KeyDown="OnKeyDown" Closed="OnClosed">
     <DockPanel LastChildFill="true">
@@ -59,13 +60,28 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Image Name="BoxLeft" Stretch="Uniform" Grid.Column="0" Grid.Row="0"></Image>
             <Image Name="BoxRight" Stretch="Uniform" Grid.Column="1" Grid.Row="0"></Image>
-            <TextBlock Name="LabelLeft" Grid.Column="0" Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" TextAlignment="Center" FontWeight="Bold">
+            <Grid Grid.Column="0" Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Name="KeyLeft" Grid.Column="0" IsEditable="True" IsTextSearchEnabled="True" />
+            </Grid>
+            <Grid Grid.Column="1" Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Name="KeyRight" Grid.Column="0" IsEditable="True" IsTextSearchEnabled="True" />
+            </Grid>
+            <TextBlock Name="LabelLeft" Grid.Column="0" Grid.Row="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" TextAlignment="Center" FontWeight="Bold">
                 name<LineBreak/>size<LineBreak/>date
             </TextBlock>
-            <TextBlock Name="LabelRight" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" TextAlignment="Center" FontWeight="Bold">
+            <TextBlock Name="LabelRight" Grid.Column="1" Grid.Row="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" TextAlignment="Center" FontWeight="Bold">
                 name<LineBreak/>size<LineBreak/>date
             </TextBlock>
         </Grid>

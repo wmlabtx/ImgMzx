@@ -19,10 +19,10 @@ namespace ImgMzx
         public int Score { get; private set; }
         public string Next { get; private set; }
         public float Distance { get; private set; }
+        public string History { get; private set; }
+        public string Key { get; private set; }
 
         private float[] _vector;
-
-        public int MaxIndex { get; private set; }
 
         public Img(
             string hash,
@@ -35,7 +35,9 @@ namespace ImgMzx
             string next,
             float distance,
             int score,
-            DateTime lastcheck
+            DateTime lastcheck,
+            string history,
+            string key
             )
         {
             Hash = hash;
@@ -48,14 +50,15 @@ namespace ImgMzx
             Distance = distance;
             Score = score;
             LastCheck = lastcheck;
+            History = history;
+            Key = key;
 
             _vector = vector;
-            MaxIndex = GetMaxVectorIndex();
         }
 
         public float[] GetVector()
         {
-            return _vector;
+            return (float[])_vector.Clone();
         }
 
         public long GetRawLastCheck()
@@ -88,7 +91,6 @@ namespace ImgMzx
         public void SetVector(float[] vector)
         {
             _vector = vector;
-            MaxIndex = GetMaxVectorIndex();
             AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeVector, GetRawVector());
         }
 
@@ -122,30 +124,22 @@ namespace ImgMzx
             AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeNext, next);
         }
 
-        public void SetDisnance(float distance)
+        public void SetDistance(float distance)
         {
             Distance = distance;
             AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeDistance, distance);
         }
 
-        public int GetMaxVectorIndex()
+        public void SetHistory(string history)
         {
-            if (_vector.Length == 0) {
-                return -1;
-            }
-                
-            var maxIndex = 0;
-            var maxValue = _vector[0];
-            for (var i = 1; i < _vector.Length; i++)
-            {
-                if (_vector[i] > maxValue)
-                {
-                    maxValue = _vector[i];
-                    maxIndex = i;
-                }
-            }
+            History = history;
+            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeHistory, history);
+        }
 
-            return maxIndex;
+        public void SetKey(string key)
+        {
+            Key = key;
+            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeKey, key);
         }
     }
 }

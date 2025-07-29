@@ -4,7 +4,7 @@ using ImgMzx;
 namespace ImgMzxTests;
 
 [TestClass]
-public class AppFaceTest
+public class AppVitTest
 {
     private static readonly StringBuilder sb = new();
 

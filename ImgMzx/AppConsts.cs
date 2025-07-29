@@ -1,4 +1,6 @@
-﻿namespace ImgMzx
+﻿  using System.Dynamic;
+
+namespace ImgMzx
 {
     public static class AppConsts
     {
@@ -6,21 +8,15 @@
 
         public const string FileDatabase = @"D:\Users\Murad\Spacer\spacer.db";
         public const string FileVit = @"D:\Users\Murad\Spacer\RN50x64-openai-visual.onnx";
-        public const string FileVitText = @"D:\Users\Murad\Spacer\clip-text-vit-32-float32-int32.onnx";
-        public const string FileVisionEncoder = @"D:\Users\Murad\Spacer\vision_encoder.onnx";
-        public const string FileEmbedTokens = @"D:\Users\Murad\Spacer\embed_tokens.onnx";
-        public const string FileEncoderModel = @"D:\Users\Murad\Spacer\encoder_model.onnx";
-        public const string FileDecoderModel = @"D:\Users\Murad\Spacer\decoder_model.onnx";
-        public const string BaseVocabFileName = @"D:\Users\Murad\Spacer\vocab.json";
-        public const string AdditionalVocabFileName = @"D:\Users\Murad\Spacer\added_tokens.json";
-        public const string MergesFileName = @"D:\Users\Murad\Spacer\merges.txt";
 
         public const string PathHp = @"D:\Users\Murad\Spacer\chunks";
         public const string PathGbProtected = @"M:\removed";
         public const string PathRawProtected = @"M:\raw";
 
         public const int MaxImportFiles = 100;
-        public const int MaxPairs = 100;
+        public const int MaxHistorySize = 100;
+        public const int VectorSize = 1024;
+        public const int HashLength = 64;
 
         public const char CharEllipsis = '\u2026';
         public const char CharRightArrow = '\u2192';
@@ -41,12 +37,10 @@
         public const string AttributeNext = "next";
         public const string AttributeScore = "score";
         public const string AttributeLastCheck = "lastcheck";
+        public const string AttributeHistory = "history";
+        public const string AttributeKey = "key";
 
         public const string TableVars = "vars";
         public const string AttributeMaxImages = "maximages";
-
-        public const string FileVocab = @"D:\Users\Murad\Spacer\vocab.json";
-        public const string FileMerges = @"D:\Users\Murad\Spacer\merges.txt";
-        public const string FileTokenizer = @"D:\Users\Murad\Spacer\tokenizer.json";
     }
 }

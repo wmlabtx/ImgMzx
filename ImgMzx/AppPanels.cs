@@ -1,4 +1,5 @@
-﻿using SixLabors.ImageSharp.PixelFormats;
+﻿using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using SixLabors.ImageSharp.PixelFormats;
 using System;
 using System.Diagnostics;
 using System.Security.Policy;
@@ -116,7 +117,7 @@ public static class AppPanels
         return SetRightPanel(_imgPanels[1]!.Img.Hash, progress);
     }
 
-    public static void Confirm(IProgress<string>? progress)
+    public static void Confirm(IProgress<string>? progress, string keyLeft, string keyRight)
     {
         var hashX = _imgPanels[0]!.Img.Hash;
         var hashY = _imgPanels[1]!.Img.Hash;
@@ -130,17 +131,49 @@ public static class AppPanels
 
             imgY.UpdateLastView();
             imgY.SetScore(imgY.Score + 1);
+
+            var historyList = imgX.History.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+            if (!historyList.Contains(imgY.Name)) {
+                historyList.Add(imgY.Name);
+                while (historyList.Count > AppConsts.MaxHistorySize) {
+                    historyList.RemoveAt(0);
+                }
+
+                var history = string.Join(',', historyList);
+                if (!history.Equals(imgX.History)) {
+                    imgX.SetHistory(history);
+                    imgX.SetNext(string.Empty);
+                }
+            }
+
+            historyList = imgY.History.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+            if (!historyList.Contains(imgX.Name)) {
+                historyList.Add(imgX.Name);
+                while (historyList.Count > AppConsts.MaxHistorySize) {
+                    historyList.RemoveAt(0);
+                }
+
+                var history = string.Join(',', historyList);
+                if (!history.Equals(imgY.History)) {
+                    imgY.SetHistory(history);
+                    imgY.SetNext(string.Empty);
+                }
+            }
+
+            UpdateKey(0, keyLeft);
+            UpdateKey(1, keyRight);
         }
     }
 
-    public static void DeleteLeft(IProgress<string>? progress)
+    public static void DeleteLeft(IProgress<string>? progress, string keyRight)
     {
         var hashX = _imgPanels[0]!.Img.Hash;
         var hashY = _imgPanels[1]!.Img.Hash;
         ImgMdf.Delete(hashX);
+        UpdateKey(1, keyRight);
     }
 
-    public static void DeleteRight(IProgress<string>? progress)
+    public static void DeleteRight(IProgress<string>? progress, string keyLeft)
     {
         var hashX = _imgPanels[0]!.Img.Hash;
         var hashY = _imgPanels[1]!.Img.Hash;
@@ -150,6 +183,8 @@ public static class AppPanels
             imgX.UpdateLastView();
             imgX.SetScore(imgX.Score + 1);
         }
+
+        UpdateKey(0, keyLeft);
     }
 
     public static void Export(IProgress<string>? progress)
@@ -162,5 +197,17 @@ public static class AppPanels
     private static void UpdateStatus(IProgress<string>? progress)
     {
         progress?.Report(AppImgs.Status);
+    }
+
+    private static void UpdateKey(int index, string key)
+    {
+        var hash = _imgPanels[index]!.Img.Hash;
+        if (AppImgs.TryGet(hash, out var img)) {
+            Debug.Assert(img != null);
+            key = key.Trim();
+            if (!key.Equals(img.Key)) {
+                img.SetKey(key);
+            }
+        }
     }
 }
