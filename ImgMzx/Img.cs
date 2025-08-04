@@ -21,6 +21,7 @@ namespace ImgMzx
         public float Distance { get; private set; }
         public string History { get; private set; }
         public string Key { get; private set; }
+        public int Id { get; private set; }
 
         private float[] _vector;
 
@@ -37,7 +38,8 @@ namespace ImgMzx
             int score,
             DateTime lastcheck,
             string history,
-            string key
+            string key,
+            int id
             )
         {
             Hash = hash;
@@ -52,6 +54,7 @@ namespace ImgMzx
             LastCheck = lastcheck;
             History = history;
             Key = key;
+            Id = id;
 
             _vector = vector;
         }
@@ -140,6 +143,12 @@ namespace ImgMzx
         {
             Key = key;
             AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeKey, key);
+        }
+
+        public void SetId(int id)
+        {
+            Id = id;
+            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeId, id);
         }
     }
 }

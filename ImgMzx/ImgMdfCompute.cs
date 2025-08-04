@@ -1,8 +1,10 @@
-﻿using System.ComponentModel;
+﻿using SixLabors.ImageSharp.Processing;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO;
+using System.Reflection;
 using System.Text;
-using SixLabors.ImageSharp.Processing;
 
 namespace ImgMzx;
 
@@ -127,11 +129,12 @@ public static partial class ImgMdf
             lastview: lastview,
             verified: false,
             next: string.Empty,
-            distance: float.MaxValue,
+            distance: 1f,
             score: 0,
             lastcheck: new DateTime(1980, 1, 1),
             history: string.Empty,
-            key: string.Empty
+            key: string.Empty,
+            id: 0
         );
 
         AppImgs.Add(imgnew);
@@ -230,11 +233,12 @@ public static partial class ImgMdf
                     lastview: img.LastView,
                     verified: img.Verified,
                     next: string.Empty,
-                    distance: float.MaxValue,
+                    distance: 1f,
                     score: img.Score,
                     lastcheck: img.LastCheck,
                     history: img.History,
-                    key: img.Key
+                    key: img.Key,
+                    id: img.Id
                 );
 
                 AppImgs.Delete(img.Hash);
@@ -286,26 +290,16 @@ public static partial class ImgMdf
             img.SetDistance(distance);
         }
 
-        /*
-        if (AppImgs.TryGetByName(next, out var imgY)) {
-            Debug.Assert(imgY != null);
-            if (!string.IsNullOrEmpty(img.Key) && string.IsNullOrEmpty(imgY.Key)) {
-                backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {imgY.Name} {AppConsts.CharRightArrow} {img.Key}");
-                imgY.SetKey(img.Key);
-            }
-            else if (string.IsNullOrEmpty(img.Key) && !string.IsNullOrEmpty(imgY.Key)) {
-                backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {img.Name} {AppConsts.CharRightArrow} {imgY.Key}");
-                img.SetKey(imgY.Key);
-            }
-        }
-        */
-
-        if (!img.Verified) {
-            var key = AppImgs.SuggestKey(img);
-            if (!key.Equals(img.Key)) {
-                backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {img.Name} {AppConsts.CharRightArrow} {key}");
-                img.SetKey(key);
-            }
+        (Img nImg, int nId) = AppImgs.UpdateClusters(img, beam);
+        var oId = nImg.Id;
+        if (oId != nId) {
+            var oP = AppImgs.GetPopulation(nImg.Id);
+            nImg.SetId(nId);
+            var nP = AppImgs.GetPopulation(nId);
+            var cpop = AppImgs.CheckForEmptyClusters();
+            var message = $"#{cpop.First().Item1}({cpop.First().Item2}) / #{cpop.Last().Item1}({cpop.Last().Item2})";
+            message += $" [{lastcheck} ago] {img.Name}: {oId} [{oP}] {AppConsts.CharRightArrow} {nId} [{nP}]";
+            backgroundworker?.ReportProgress(0, message);
         }
 
         img.UpdateLastCheck();

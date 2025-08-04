@@ -166,6 +166,11 @@ public sealed partial class MainWindow
                 sb.Append($" +{panels[index]!.Img.Score}");
             }
 
+            if (panels[index]!.Img.Id > 0) {
+                var population = AppImgs.GetPopulation(panels[index]!.Img.Id);
+                sb.Append($" #{panels[index]!.Img.Id}[{population}]");
+            }
+
             sb.AppendLine();
 
             sb.Append($"{Helper.SizeToString(panels[index]!.Size)} ");
@@ -183,11 +188,11 @@ public sealed partial class MainWindow
 
             pLabels[index].Text = sb.ToString();
             pLabels[index].Background = System.Windows.Media.Brushes.White;
-            if (!panels[index]!.Img.Verified) {
-                pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
+            if (panels[index]!.Img.Id > 0 && panels[index]!.Img.Id == panels[1 - index]!.Img.Id) {
+                pLabels[index].Background = System.Windows.Media.Brushes.LawnGreen;
             }
-            else if (!string.IsNullOrEmpty(panels[index]!.Img.Key) && panels[index]!.Img.Key.Equals(panels[1 - index]!.Img.Key)) {
-                pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
+            else if (!panels[index]!.Img.Verified) {
+                pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
             }
             else if (historyItems.Length > 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.Bisque;

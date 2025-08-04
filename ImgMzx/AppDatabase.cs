@@ -19,6 +19,7 @@ public static class AppDatabase
         IProgress<string>? progress, 
         out SortedList<string, Img> imgList, 
         out SortedList<string, string> nameList,
+        out SortedList<int, DateTime> clusterList,
         out int maxImages)
     {       
         lock (_lock) {
@@ -28,6 +29,7 @@ public static class AppDatabase
 
             LoadImages(progress, out imgList, out nameList);
             LoadVars(progress, out maxImages);
+            LoadClusters(progress, out clusterList);
         }
     }
 
@@ -52,7 +54,8 @@ public static class AppDatabase
         sb.Append($"{AppConsts.AttributeScore},"); // 9
         sb.Append($"{AppConsts.AttributeLastCheck},"); // 10
         sb.Append($"{AppConsts.AttributeHistory},"); // 11
-        sb.Append($"{AppConsts.AttributeKey}"); // 12
+        sb.Append($"{AppConsts.AttributeKey},"); // 12
+        sb.Append($"{AppConsts.AttributeId}"); // 13
         sb.Append($" FROM {AppConsts.TableImages};");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
         using var reader = sqlCommand.ExecuteReader();
@@ -72,6 +75,7 @@ public static class AppDatabase
                 var lastcheck = DateTime.FromBinary(reader.GetInt64(10));
                 var history = reader.GetString(11);
                 var key = reader.GetString(12);
+                var id = (int)reader.GetInt64(13);
 
                 var img = new Img(
                     hash: hash,
@@ -86,7 +90,8 @@ public static class AppDatabase
                     score: score,
                     lastcheck: lastcheck,
                     history: history,
-                    key: key
+                    key: key,
+                    id: id
                 );
 
                 imgList.Add(img.Hash, img);
@@ -123,6 +128,37 @@ public static class AppDatabase
         }
     }
 
+    private static void LoadClusters(
+        IProgress<string>? progress,
+        out SortedList<int, DateTime> clusterList)
+    {
+        clusterList = new SortedList<int, DateTime>();
+        var sb = new StringBuilder();
+        sb.Append("SELECT ");
+        sb.Append($"{AppConsts.AttributeId},"); // 0
+        sb.Append($"{AppConsts.AttributeLastView}"); // 1
+        sb.Append($" FROM {AppConsts.TableClusters};");
+        using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
+        using var reader = sqlCommand.ExecuteReader();
+        if (reader.HasRows) {
+            var dtn = DateTime.Now;
+            while (reader.Read()) {
+                var id = (int)reader.GetInt64(0);
+                var lastview = DateTime.FromBinary(reader.GetInt64(1));
+
+                clusterList.Add(id, lastview);
+
+                if (!(DateTime.Now.Subtract(dtn).TotalMilliseconds > AppConsts.TimeLapse)) {
+                    continue;
+                }
+
+                dtn = DateTime.Now;
+                var count = clusterList.Count;
+                progress?.Report($"Loading clusters ({count}){AppConsts.CharEllipsis}");
+            }
+        }
+    }
+
     public static void Add(Img img)
     {
         lock (_lock) {
@@ -142,7 +178,8 @@ public static class AppDatabase
                 sb.Append($"{AppConsts.AttributeScore},");
                 sb.Append($"{AppConsts.AttributeLastCheck},");
                 sb.Append($"{AppConsts.AttributeHistory},");
-                sb.Append($"{AppConsts.AttributeKey}");
+                sb.Append($"{AppConsts.AttributeKey},");
+                sb.Append($"{AppConsts.AttributeId}");
                 sb.Append(") VALUES (");
                 sb.Append($"@{AppConsts.AttributeHash},");
                 sb.Append($"@{AppConsts.AttributeName},");
@@ -156,7 +193,8 @@ public static class AppDatabase
                 sb.Append($"@{AppConsts.AttributeScore},");
                 sb.Append($"@{AppConsts.AttributeLastCheck},");
                 sb.Append($"@{AppConsts.AttributeHistory},");
-                sb.Append($"@{AppConsts.AttributeKey}");
+                sb.Append($"@{AppConsts.AttributeKey},");
+                sb.Append($"@{AppConsts.AttributeId}");
                 sb.Append(')');
                 sqlCommand.CommandText = sb.ToString();
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
@@ -172,6 +210,7 @@ public static class AppDatabase
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.GetRawLastCheck());
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHistory}", img.History);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeKey}", img.Key);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeId}", img.Id);
                 sqlCommand.ExecuteNonQuery();
             }
         }
@@ -213,6 +252,51 @@ public static class AppDatabase
                 $"UPDATE {AppConsts.TableVars} SET {AppConsts.AttributeMaxImages} = @{AppConsts.AttributeMaxImages}";
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeMaxImages}", AppVars.MaxImages);
             sqlCommand.ExecuteNonQuery();
+        }
+    }
+
+    public static void DeleteAllClusters()
+    {
+        lock (_lock) {
+            using var sqlCommand = _sqlConnection.CreateCommand();
+            sqlCommand.Connection = _sqlConnection;
+            sqlCommand.CommandText = $"DELETE FROM {AppConsts.TableClusters}";
+            sqlCommand.ExecuteNonQuery();
+        }
+    }
+
+    public static void AddCluster(int id, DateTime lastview)
+    {
+        lock (_lock) {
+            using (var sqlCommand = _sqlConnection.CreateCommand()) {
+                sqlCommand.Connection = _sqlConnection;
+                var sb = new StringBuilder();
+                sb.Append($"INSERT INTO {AppConsts.TableClusters} (");
+                sb.Append($"{AppConsts.AttributeId},");
+                sb.Append($"{AppConsts.AttributeLastView}");
+                sb.Append(") VALUES (");
+                sb.Append($"@{AppConsts.AttributeId},");
+                sb.Append($"@{AppConsts.AttributeLastView}");
+                sb.Append(')');
+                sqlCommand.CommandText = sb.ToString();
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeId}", id);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastView}", lastview.Ticks);
+                sqlCommand.ExecuteNonQuery();
+            }
+        }
+    }
+
+    public static void ClusterUpdateProperty(int id, string key, object val)
+    {
+        lock (_lock) {
+            using (var sqlCommand = _sqlConnection.CreateCommand()) {
+                sqlCommand.Connection = _sqlConnection;
+                sqlCommand.CommandText =
+                    $"UPDATE {AppConsts.TableClusters} SET {key} = @{key} WHERE {AppConsts.AttributeId} = @{AppConsts.AttributeId}";
+                sqlCommand.Parameters.AddWithValue($"@{key}", val);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeId}", id);
+                sqlCommand.ExecuteNonQuery();
+            }
         }
     }
 }

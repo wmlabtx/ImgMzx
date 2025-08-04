@@ -1,4 +1,4 @@
-﻿  using System.Dynamic;
+﻿using System.Dynamic;
 
 namespace ImgMzx
 {
@@ -17,6 +17,7 @@ namespace ImgMzx
         public const int MaxHistorySize = 100;
         public const int VectorSize = 1024;
         public const int HashLength = 64;
+        public const int MaxClusters = 255;
 
         public const char CharEllipsis = '\u2026';
         public const char CharRightArrow = '\u2192';
@@ -39,8 +40,11 @@ namespace ImgMzx
         public const string AttributeLastCheck = "lastcheck";
         public const string AttributeHistory = "history";
         public const string AttributeKey = "key";
+        public const string AttributeId = "id";
 
         public const string TableVars = "vars";
         public const string AttributeMaxImages = "maximages";
+
+        public const string TableClusters = "clusters";
     }
 }

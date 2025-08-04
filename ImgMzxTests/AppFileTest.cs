@@ -48,6 +48,6 @@ public class AppFileTest
         const string name = "0f3912";
         const string ext = "jpeg";
         var filename = AppFile.GetRecycledName(name, ext, AppConsts.PathGbProtected, new DateTime(2024, 6, 13, 10, 23, 59));
-        Assert.AreEqual(filename, @$"{AppConsts.PathGbProtected}\2024-06-13\102359.{name}.jpeg");
+        Assert.AreEqual(@$"{AppConsts.PathGbProtected}\2024-06-13\102359.{name}.jpeg", filename);
     }
 }
