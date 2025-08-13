@@ -48,14 +48,10 @@ public static class AppDatabase
         sb.Append($"{AppConsts.AttributeRotateMode},"); // 3
         sb.Append($"{AppConsts.AttributeFlipMode},"); // 4
         sb.Append($"{AppConsts.AttributeLastView},"); // 5
-        sb.Append($"{AppConsts.AttributeVerified},"); // 6
-        sb.Append($"{AppConsts.AttributeNext},"); // 7
-        sb.Append($"{AppConsts.AttributeDistance},"); // 8
-        sb.Append($"{AppConsts.AttributeScore},"); // 9
-        sb.Append($"{AppConsts.AttributeLastCheck},"); // 10
-        sb.Append($"{AppConsts.AttributeHistory},"); // 11
-        sb.Append($"{AppConsts.AttributeKey},"); // 12
-        sb.Append($"{AppConsts.AttributeId}"); // 13
+        sb.Append($"{AppConsts.AttributeFamily},"); // 6
+        sb.Append($"{AppConsts.AttributeScore},"); // 7
+        sb.Append($"{AppConsts.AttributeLastCheck},"); // 8
+        sb.Append($"{AppConsts.AttributeId}"); // 9
         sb.Append($" FROM {AppConsts.TableImages};");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
         using var reader = sqlCommand.ExecuteReader();
@@ -68,14 +64,10 @@ public static class AppDatabase
                 var rotatemode = (RotateMode)Enum.Parse(typeof(RotateMode), reader.GetInt64(3).ToString());
                 var flipmode = (FlipMode)Enum.Parse(typeof(FlipMode), reader.GetInt64(4).ToString());
                 var lastview = DateTime.FromBinary(reader.GetInt64(5));
-                var verified = reader.GetBoolean(6);
-                var next = reader.GetString(7);
-                var distance = reader.GetFloat(8);
-                var score = (int)reader.GetInt64(9);
-                var lastcheck = DateTime.FromBinary(reader.GetInt64(10));
-                var history = reader.GetString(11);
-                var key = reader.GetString(12);
-                var id = (int)reader.GetInt64(13);
+                var family = (int)reader.GetInt64(6);
+                var score = (int)reader.GetInt64(7);
+                var lastcheck = DateTime.FromBinary(reader.GetInt64(8));
+                var id = (int)reader.GetInt64(9);
 
                 var img = new Img(
                     hash: hash,
@@ -84,14 +76,10 @@ public static class AppDatabase
                     rotatemode: rotatemode,
                     flipmode: flipmode,
                     lastview: lastview,
-                    verified: verified,
-                    next: next,
-                    distance: distance,
                     score: score,
                     lastcheck: lastcheck,
-                    history: history,
-                    key: key,
-                    id: id
+                    id: id,
+                    family: family
                 );
 
                 imgList.Add(img.Hash, img);
@@ -172,13 +160,9 @@ public static class AppDatabase
                 sb.Append($"{AppConsts.AttributeRotateMode},");
                 sb.Append($"{AppConsts.AttributeFlipMode},");
                 sb.Append($"{AppConsts.AttributeLastView},");
-                sb.Append($"{AppConsts.AttributeVerified},");
-                sb.Append($"{AppConsts.AttributeNext},");
-                sb.Append($"{AppConsts.AttributeDistance},");
+                sb.Append($"{AppConsts.AttributeFamily},");
                 sb.Append($"{AppConsts.AttributeScore},");
                 sb.Append($"{AppConsts.AttributeLastCheck},");
-                sb.Append($"{AppConsts.AttributeHistory},");
-                sb.Append($"{AppConsts.AttributeKey},");
                 sb.Append($"{AppConsts.AttributeId}");
                 sb.Append(") VALUES (");
                 sb.Append($"@{AppConsts.AttributeHash},");
@@ -187,13 +171,9 @@ public static class AppDatabase
                 sb.Append($"@{AppConsts.AttributeRotateMode},");
                 sb.Append($"@{AppConsts.AttributeFlipMode},");
                 sb.Append($"@{AppConsts.AttributeLastView},");
-                sb.Append($"@{AppConsts.AttributeVerified},");
-                sb.Append($"@{AppConsts.AttributeNext},");
-                sb.Append($"@{AppConsts.AttributeDistance},");
+                sb.Append($"@{AppConsts.AttributeFamily},");
                 sb.Append($"@{AppConsts.AttributeScore},");
                 sb.Append($"@{AppConsts.AttributeLastCheck},");
-                sb.Append($"@{AppConsts.AttributeHistory},");
-                sb.Append($"@{AppConsts.AttributeKey},");
                 sb.Append($"@{AppConsts.AttributeId}");
                 sb.Append(')');
                 sqlCommand.CommandText = sb.ToString();
@@ -203,13 +183,9 @@ public static class AppDatabase
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRotateMode}", (int)img.RotateMode);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFlipMode}", (int)img.FlipMode);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastView}", img.GetRawLastView());
-                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVerified}", img.Verified);
-                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeNext}", img.Next);
-                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", img.Family);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeScore}", img.Score);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.GetRawLastCheck());
-                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHistory}", img.History);
-                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeKey}", img.Key);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeId}", img.Id);
                 sqlCommand.ExecuteNonQuery();
             }
@@ -261,6 +237,8 @@ public static class AppDatabase
             using var sqlCommand = _sqlConnection.CreateCommand();
             sqlCommand.Connection = _sqlConnection;
             sqlCommand.CommandText = $"DELETE FROM {AppConsts.TableClusters}";
+            sqlCommand.ExecuteNonQuery();
+            sqlCommand.CommandText = $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeId} = 0";
             sqlCommand.ExecuteNonQuery();
         }
     }

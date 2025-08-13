@@ -119,7 +119,8 @@ public static partial class ImgMdf
             File.SetAttributes(orgfilename, FileAttributes.Normal);
             File.Delete(orgfilename);
         }
-            
+        
+        var id = AppImgs.FindCluster(vector);
         var imgnew = new Img(
             hash: hash,
             name: name,
@@ -127,14 +128,10 @@ public static partial class ImgMdf
             rotatemode: RotateMode.None,
             flipmode: FlipMode.None,
             lastview: lastview,
-            verified: false,
-            next: string.Empty,
-            distance: 1f,
             score: 0,
             lastcheck: new DateTime(1980, 1, 1),
-            history: string.Empty,
-            key: string.Empty,
-            id: 0
+            id: id,
+            family: 0
         );
 
         AppImgs.Add(imgnew);
@@ -231,14 +228,10 @@ public static partial class ImgMdf
                     rotatemode: img.RotateMode,
                     flipmode: img.FlipMode,
                     lastview: img.LastView,
-                    verified: img.Verified,
-                    next: string.Empty,
-                    distance: 1f,
                     score: img.Score,
                     lastcheck: img.LastCheck,
-                    history: img.History,
-                    key: img.Key,
-                    id: img.Id
+                    id: img.Id,
+                    family: img.Family
                 );
 
                 AppImgs.Delete(img.Hash);
@@ -254,49 +247,15 @@ public static partial class ImgMdf
             }
         }
 
-        var historySet = new SortedSet<string>();
-        if (img.History.Length > 0) {
-            var historyItems = img.History.Split(',');
-            foreach (var e in historyItems) {
-                if (AppImgs.TryGetByName(e, out _)) {
-                    historySet.Add(e);
-                }
-            }
-
-            var historyNew = string.Join(',', historySet.ToArray());
-            if (!historyNew.Equals(img.History)) {
-                backgroundworker?.ReportProgress(0, $"{img.Name}: updating history");
-                img.SetHistory(historyNew);
-            }
-        }
-
         var beam = AppImgs.GetBeam(img);
-        var i = 0;
-        while (i < beam.Count) {
-            if (!historySet.Contains(beam[i].Item1)) {
-                break;
-            }
-
-            i++;
-        }
-
-        var next = beam[i].Item1;
-        var distance = beam[i].Item2;
-        var olddistance = img.Distance;
-        var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
-        if (!img.Next.Equals(next) || Math.Abs(img.Distance - distance) >= 0.0001f) {
-            backgroundworker?.ReportProgress(0, $"[{lastcheck} ago] {img.Name}: {olddistance:F4} {AppConsts.CharRightArrow} {distance:F4}");
-            img.SetNext(next);
-            img.SetDistance(distance);
-        }
-
-        (Img nImg, int nId) = AppImgs.UpdateClusters(img, beam);
+        (Img nImg, int nId) = AppImgs.CheckCluster(img, beam);
         var oId = nImg.Id;
         if (oId != nId) {
             var oP = AppImgs.GetPopulation(nImg.Id);
             nImg.SetId(nId);
             var nP = AppImgs.GetPopulation(nId);
             var cpop = AppImgs.CheckForEmptyClusters();
+            var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
             var message = $"#{cpop.First().Item1}({cpop.First().Item2}) / #{cpop.Last().Item1}({cpop.Last().Item2})";
             message += $" [{lastcheck} ago] {img.Name}: {oId} [{oP}] {AppConsts.CharRightArrow} {nId} [{nP}]";
             backgroundworker?.ReportProgress(0, message);

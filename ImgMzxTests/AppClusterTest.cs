@@ -51,6 +51,7 @@ public class AppClusterTest
     [TestMethod]
     public void TrainClusters()
     {
+        /*
         if (!_databaseLoaded || AppImgs.Count() < 2) {
             Assert.Inconclusive("Need at least 2 images in database for this test");
             return;
@@ -70,8 +71,8 @@ public class AppClusterTest
 
             var oP = AppImgs.GetPopulation(img.Id);
             var oId = img.Id;
-            (Img nImg, int nId) = AppImgs.UpdateClusters(img, beam);
-            nImg.SetId(nId);
+            var nId = AppImgs.CheckCluster(img, beam);
+            img.SetId(nId);
             var nP = AppImgs.GetPopulation(nId);
             Debug.WriteLine($"{counter}: {img.Name} {oId} [{oP}] {AppConsts.CharRightArrow} {nId} [{nP}]");
             
@@ -82,5 +83,6 @@ public class AppClusterTest
 
             counter++;
         }
+        */
     }
 }

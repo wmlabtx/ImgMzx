@@ -11,7 +11,6 @@ public sealed partial class MainWindow
 {
     private double _picsMaxWidth;
     private double _picsMaxHeight;
-    private double _keyMaxHeight;
     private double _labelMaxHeight;
 
     private readonly NotifyIcon _notifyIcon = new();
@@ -33,9 +32,8 @@ public sealed partial class MainWindow
         Top = SystemParameters.WorkArea.Top + (SystemParameters.WorkArea.Height - AppConsts.WindowMargin - Height) / 2;
 
         _picsMaxWidth = Grid.ActualWidth;
-        _keyMaxHeight = KeyLeft.ActualHeight;
         _labelMaxHeight = LabelLeft.ActualHeight;
-        _picsMaxHeight = Grid.ActualHeight - _keyMaxHeight - _labelMaxHeight;
+        _picsMaxHeight = Grid.ActualHeight - _labelMaxHeight;
 
         _notifyIcon.Icon = new Icon(@"app.ico");
         _notifyIcon.Visible = false;
@@ -96,9 +94,7 @@ public sealed partial class MainWindow
     private async void ButtonLeftNextMouseClick()
     {
         DisableElements();
-        var keyLeft = KeyLeft.Text;
-        var keyRight = KeyRight.Text;
-        await Task.Run(() => { AppPanels.Confirm(AppVars.Progress, keyLeft, keyRight); }).ConfigureAwait(true);
+        await Task.Run(() => { AppPanels.Confirm(AppVars.Progress); }).ConfigureAwait(true);
         await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
@@ -107,9 +103,7 @@ public sealed partial class MainWindow
     private async void ButtonRightNextMouseClick()
     {
         DisableElements();
-        var keyLeft = KeyLeft.Text;
-        var keyRight = KeyRight.Text;
-        await Task.Run(() => { AppPanels.Confirm(AppVars.Progress, keyLeft, keyRight); }).ConfigureAwait(true);
+        await Task.Run(() => { AppPanels.Confirm(AppVars.Progress); }).ConfigureAwait(true);
         var hashX = AppPanels.GetImgPanel(0)!.Img.Hash;
         await Task.Run(() => { ImgMdf.Find(hashX, AppVars.Progress); }).ConfigureAwait(true);
         DrawCanvas();
@@ -150,25 +144,24 @@ public sealed partial class MainWindow
 
         var pBoxes = new[] { BoxLeft, BoxRight };
         var pLabels = new[] { LabelLeft, LabelRight };
-        var pKeys = new[] { KeyLeft, KeyRight };
 
         for (var index = 0; index < 2; index++) {
             pBoxes[index].Source = AppBitmap.GetImageSource(panels[index]!.Image);
             var sb = new StringBuilder();
             sb.Append($"{panels[index]!.Img.Name}.{panels[index]!.Extension}");
 
-            var historyItems = panels[index]!.Img.History.Split(',', StringSplitOptions.RemoveEmptyEntries);
-            if (historyItems.Length > 0) {
-                sb.Append($" [{historyItems.Length}]");
-            }
-
             if (panels[index]!.Img.Score > 0) {
                 sb.Append($" +{panels[index]!.Img.Score}");
             }
 
+            if (panels[index]!.Img.Family > 0) {
+                var population = AppImgs.GetFamilySize(panels[index]!.Img.Family);
+                sb.Append($" F{panels[index]!.Img.Family}[{population}]");
+            }
+
             if (panels[index]!.Img.Id > 0) {
                 var population = AppImgs.GetPopulation(panels[index]!.Img.Id);
-                sb.Append($" #{panels[index]!.Img.Id}[{population}]");
+                sb.Append($" #{panels[index]!.Img.Id:X2}[{population}]");
             }
 
             sb.AppendLine();
@@ -188,24 +181,14 @@ public sealed partial class MainWindow
 
             pLabels[index].Text = sb.ToString();
             pLabels[index].Background = System.Windows.Media.Brushes.White;
-            if (panels[index]!.Img.Id > 0 && panels[index]!.Img.Id == panels[1 - index]!.Img.Id) {
+            if (panels[index]!.Img.Family > 0 && panels[index]!.Img.Family != panels[1 - index]!.Img.Family) {
+                pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
+            } else if (panels[index]!.Img.Family > 0 && panels[index]!.Img.Family == panels[1 - index]!.Img.Family) {
                 pLabels[index].Background = System.Windows.Media.Brushes.LawnGreen;
-            }
-            else if (!panels[index]!.Img.Verified) {
+            } else if (panels[index]!.Img.Score == 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
             }
-            else if (historyItems.Length > 0) {
-                pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
-            }
-
-            pKeys[index].Text = panels[index]!.Img.Key;
         }
-
-        var keys = AppImgs.GetKeys();
-        KeyLeft.Text = panels[0]!.Img.Key;
-        KeyLeft.ItemsSource = keys;
-        KeyRight.Text = panels[1]!.Img.Key;
-        KeyRight.ItemsSource = keys;
 
         RedrawCanvas();
     }
@@ -232,7 +215,7 @@ public sealed partial class MainWindow
         Grid.ColumnDefinitions[1].Width = new GridLength(ws[1] * a, GridUnitType.Pixel);
         Grid.RowDefinitions[0].Height = new GridLength(Math.Max(hs[0], hs[1]) * a, GridUnitType.Pixel);
         Grid.Width = (ws[0] + ws[1]) * a;
-        Grid.Height = Math.Max(hs[0], hs[1]) * a + _keyMaxHeight + _labelMaxHeight;
+        Grid.Height = Math.Max(hs[0], hs[1]) * a + _labelMaxHeight;
         SizeToContent = SizeToContent.WidthAndHeight;
         Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - AppConsts.WindowMargin - Width) / 2;
         Top = SystemParameters.WorkArea.Top + (SystemParameters.WorkArea.Height - AppConsts.WindowMargin - Height) / 2;
@@ -248,8 +231,7 @@ public sealed partial class MainWindow
     private async void ImgPanelDeleteLeft()
     {
         DisableElements();
-        var keyRight = KeyRight.Text;
-        await Task.Run(() => { AppPanels.DeleteLeft(AppVars.Progress, keyRight); }).ConfigureAwait(true);
+        await Task.Run(() => { AppPanels.DeleteLeft(AppVars.Progress); }).ConfigureAwait(true);
         await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
@@ -258,8 +240,7 @@ public sealed partial class MainWindow
     private async void ImgPanelDeleteRight()
     {
         DisableElements();
-        var keyLeft = KeyLeft.Text;
-        await Task.Run(() => { AppPanels.DeleteRight(AppVars.Progress, keyLeft); }).ConfigureAwait(true);
+        await Task.Run(() => { AppPanels.DeleteRight(AppVars.Progress); }).ConfigureAwait(true);
         await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
@@ -316,44 +297,45 @@ public sealed partial class MainWindow
 
     private void FamilyAddClick()
     {
-        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
-        var c = string.Compare(imgX.Family, imgY.Family, StringComparison.Ordinal);
-        if (c != 0) {
-            var family = c < 0 ? imgX.Family : imgY.Family;
-            if (imgX.Family != family) {
-                AppImgs.MoveFamily(imgX.Family, family);
+        if (imgX.Family == 0 && imgY.Family == 0) {
+            var family = AppImgs.GetNewFamily();
+            imgX.SetFamily(family);
+            imgY.SetFamily(family);
+        }
+        else if (imgX.Family == 0 && imgY.Family != 0) {
+            imgX.SetFamily(imgY.Family);
+        }
+        else if (imgX.Family != 0 && imgY.Family == 0) {
+            imgY.SetFamily(imgX.Family);
+        }
+        else {
+            if (imgX.Family < imgY.Family) {
+                AppImgs.MoveFamily(imgY.Family, imgX.Family);
             }
-            if (imgY.Family != family) {
-                AppImgs.MoveFamily(imgY.Family, family);
+            else if (imgX.Family > imgY.Family) {
+                AppImgs.MoveFamily(imgX.Family, imgY.Family);
             }
         }
 
         DrawCanvas();
         EnableElements();
-        */
     }
 
     private void FamilyRemoveClick()
     {
-        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
-        if (!imgX.Family.Equals(imgX.Name)) {
-            var family = imgX.Family;
-            imgX.SetFamily(imgX.Name);
-            var size = AppImgs.GetFamilySize(family);
-            if (size == 0) {
-                AppDatabase.DeletePair(family);
-            }
+        if (imgX.Family != imgY.Family) {
+            imgX.SetFamily(0);
+            imgY.SetFamily(0);
         }
 
         DrawCanvas();
         EnableElements();
-        */
     }
 
     private void OnKeyDown(Key key)

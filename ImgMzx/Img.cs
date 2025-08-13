@@ -4,151 +4,115 @@ using System.Diagnostics;
 using System.Text;
 using System.Xml.Linq;
 
-namespace ImgMzx
+namespace ImgMzx;
+
+public class Img
 {
-    public class Img
+    public string Hash { get; }
+    public string Name { get; }
+
+    public DateTime LastView { get; private set; }
+    public DateTime LastCheck { get; private set; }
+    public RotateMode RotateMode { get; private set; }
+    public FlipMode FlipMode { get; private set; }
+    public bool Verified { get; private set; }
+    public int Score { get; private set; }
+    public int Id { get; private set; }
+    public int Family { get; private set; }
+
+    private float[] _vector;
+
+    public Img(
+        string hash,
+        string name,
+        float[] vector,
+        DateTime lastview,
+        RotateMode rotatemode,
+        FlipMode flipmode,
+        int score,
+        DateTime lastcheck,
+        int id,
+        int family
+        )
     {
-        public string Hash { get; }
-        public string Name { get; }
+        Hash = hash;
+        Name = name;
+        RotateMode = rotatemode;
+        FlipMode = flipmode;
+        LastView = lastview;
+        Score = score;
+        LastCheck = lastcheck;
+        Id = id;
+        Family = family;
 
-        public DateTime LastView { get; private set; }
-        public DateTime LastCheck { get; private set; }
-        public RotateMode RotateMode { get; private set; }
-        public FlipMode FlipMode { get; private set; }
-        public bool Verified { get; private set; }
-        public int Score { get; private set; }
-        public string Next { get; private set; }
-        public float Distance { get; private set; }
-        public string History { get; private set; }
-        public string Key { get; private set; }
-        public int Id { get; private set; }
+        _vector = vector;
+    }
 
-        private float[] _vector;
+    public float[] GetVector()
+    {
+        return (float[])_vector.Clone();
+    }
 
-        public Img(
-            string hash,
-            string name,
-            float[] vector,
-            DateTime lastview,
-            RotateMode rotatemode,
-            FlipMode flipmode,
-            bool verified,
-            string next,
-            float distance,
-            int score,
-            DateTime lastcheck,
-            string history,
-            string key,
-            int id
-            )
-        {
-            Hash = hash;
-            Name = name;
-            RotateMode = rotatemode;
-            FlipMode = flipmode;
-            LastView = lastview;
-            Verified = verified;
-            Next = next;
-            Distance = distance;
-            Score = score;
-            LastCheck = lastcheck;
-            History = history;
-            Key = key;
-            Id = id;
+    public long GetRawLastCheck()
+    {
+        return LastCheck.Ticks;
+    }
 
-            _vector = vector;
-        }
+    public long GetRawLastView()
+    {
+        return LastView.Ticks;
+    }
 
-        public float[] GetVector()
-        {
-            return (float[])_vector.Clone();
-        }
+    public byte[] GetRawVector()
+    {
+        return Helper.ArrayFromFloat(_vector);
+    }
 
-        public long GetRawLastCheck()
-        {
-            return LastCheck.Ticks;
-        }
+    public void UpdateLastView()
+    {
+        LastView = DateTime.Now;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeLastView, GetRawLastView());
+    }
 
-        public long GetRawLastView()
-        {
-            return LastView.Ticks;
-        }
+    public void UpdateLastCheck()
+    {
+        LastCheck = DateTime.Now;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeLastCheck, GetRawLastCheck());
+    }
 
-        public byte[] GetRawVector()
-        {
-            return Helper.ArrayFromFloat(_vector);
-        }
+    public void SetVector(float[] vector)
+    {
+        _vector = vector;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeVector, GetRawVector());
+    }
 
-        public void UpdateLastView()
-        {
-            LastView = DateTime.Now;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeLastView, GetRawLastView());
-        }
+    public void SetRotateMode(RotateMode rotateMode)
+    {
+        RotateMode = rotateMode;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeRotateMode, (int)rotateMode);
+    }
 
-        public void UpdateLastCheck()
-        {
-            LastCheck = DateTime.Now;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeLastCheck, GetRawLastCheck());
-        }
+    public void SetFlipMode(FlipMode flipMode)
+    {
+        FlipMode = flipMode;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeFlipMode, (int)flipMode);
+    }
 
-        public void SetVector(float[] vector)
-        {
-            _vector = vector;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeVector, GetRawVector());
-        }
+    public void SetScore(int score)
+    {
+        Score = score;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeScore, score);
+    }
 
-        public void SetRotateMode(RotateMode rotateMode)
-        {
-            RotateMode = rotateMode;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeRotateMode, (int)rotateMode);
-        }
+    public void SetId(int id)
+    {
+        Id = id;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeId, id);
+    }
 
-        public void SetFlipMode(FlipMode flipMode)
-        {
-            FlipMode = flipMode;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeFlipMode, (int)flipMode);
-        }
-
-        public void UpdateVerified()
-        {
-            Verified = true;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeVerified, Verified);
-        }
-
-        public void SetScore(int score)
-        {
-            Score = score;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeScore, score);
-        }
-
-        public void SetNext(string next)
-        {
-            Next = next;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeNext, next);
-        }
-
-        public void SetDistance(float distance)
-        {
-            Distance = distance;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeDistance, distance);
-        }
-
-        public void SetHistory(string history)
-        {
-            History = history;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeHistory, history);
-        }
-
-        public void SetKey(string key)
-        {
-            Key = key;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeKey, key);
-        }
-
-        public void SetId(int id)
-        {
-            Id = id;
-            AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeId, id);
-        }
+    public void SetFamily(int family)
+    {
+        Family = family;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeFamily, family);
     }
 }

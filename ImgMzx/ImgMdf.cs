@@ -38,13 +38,8 @@ namespace ImgMzx
                     continue;
                 }
 
-                var nameY = AppImgs.GetYName(imgX, progress);
-                if (!AppImgs.TryGetByName(nameY!, out var imgY)) {
-                    hashX = null;
-                    imgX = null;
-                    continue;
-                }
-
+                var imgY = AppImgs.GetY(imgX, progress);
+                Debug.Assert(imgY != null);
                 if (!AppPanels.SetRightPanel(imgY!.Hash, progress)) {
                     Delete(imgY!.Hash);
                     hashX = null;
