@@ -154,16 +154,6 @@ public sealed partial class MainWindow
                 sb.Append($" +{panels[index]!.Img.Score}");
             }
 
-            if (panels[index]!.Img.Family > 0) {
-                var population = AppImgs.GetFamilySize(panels[index]!.Img.Family);
-                sb.Append($" F{panels[index]!.Img.Family}[{population}]");
-            }
-
-            if (panels[index]!.Img.Id > 0) {
-                var population = AppImgs.GetPopulation(panels[index]!.Img.Id);
-                sb.Append($" #{panels[index]!.Img.Id:X2}[{population}]");
-            }
-
             sb.AppendLine();
 
             sb.Append($"{Helper.SizeToString(panels[index]!.Size)} ");
@@ -181,11 +171,7 @@ public sealed partial class MainWindow
 
             pLabels[index].Text = sb.ToString();
             pLabels[index].Background = System.Windows.Media.Brushes.White;
-            if (panels[index]!.Img.Family > 0 && panels[index]!.Img.Family != panels[1 - index]!.Img.Family) {
-                pLabels[index].Background = System.Windows.Media.Brushes.Bisque;
-            } else if (panels[index]!.Img.Family > 0 && panels[index]!.Img.Family == panels[1 - index]!.Img.Family) {
-                pLabels[index].Background = System.Windows.Media.Brushes.LawnGreen;
-            } else if (panels[index]!.Img.Score == 0) {
+            if (panels[index]!.Img.Score == 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
             }
         }
@@ -297,6 +283,7 @@ public sealed partial class MainWindow
 
     private void FamilyAddClick()
     {
+        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
@@ -322,10 +309,12 @@ public sealed partial class MainWindow
 
         DrawCanvas();
         EnableElements();
+        */
     }
 
     private void FamilyRemoveClick()
     {
+        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
@@ -336,6 +325,7 @@ public sealed partial class MainWindow
 
         DrawCanvas();
         EnableElements();
+        */
     }
 
     private void OnKeyDown(Key key)

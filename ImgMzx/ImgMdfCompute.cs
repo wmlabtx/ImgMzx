@@ -5,6 +5,7 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace ImgMzx;
 
@@ -120,7 +121,6 @@ public static partial class ImgMdf
             File.Delete(orgfilename);
         }
         
-        var id = AppImgs.FindCluster(vector);
         var imgnew = new Img(
             hash: hash,
             name: name,
@@ -130,8 +130,7 @@ public static partial class ImgMdf
             lastview: lastview,
             score: 0,
             lastcheck: new DateTime(1980, 1, 1),
-            id: id,
-            family: 0
+            next: string.Empty
         );
 
         AppImgs.Add(imgnew);
@@ -230,8 +229,7 @@ public static partial class ImgMdf
                     lastview: img.LastView,
                     score: img.Score,
                     lastcheck: img.LastCheck,
-                    id: img.Id,
-                    family: img.Family
+                    next: string.Empty
                 );
 
                 AppImgs.Delete(img.Hash);
@@ -248,17 +246,25 @@ public static partial class ImgMdf
         }
 
         var beam = AppImgs.GetBeam(img);
-        (Img nImg, int nId) = AppImgs.CheckCluster(img, beam);
-        var oId = nImg.Id;
-        if (oId != nId) {
-            var oP = AppImgs.GetPopulation(nImg.Id);
-            nImg.SetId(nId);
-            var nP = AppImgs.GetPopulation(nId);
-            var cpop = AppImgs.CheckForEmptyClusters();
+        if (beam.Count == 0) {
+            throw new Exception("No images found for beam.");
+        }
+
+        if (!AppImgs.TryGet(beam.First().Item1, out var imgY)) {
+            throw new Exception("Failed to get image by hash.");
+        }
+
+        if (imgY == null) {
+            throw new Exception("Failed to get image by hash.");
+        }
+
+        if (!img.Next.Equals(imgY.Hash)) {
             var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
-            var message = $"#{cpop.First().Item1}({cpop.First().Item2}) / #{cpop.Last().Item1}({cpop.Last().Item2})";
-            message += $" [{lastcheck} ago] {img.Name}: {oId} [{oP}] {AppConsts.CharRightArrow} {nId} [{nP}]";
+            var old = img.Next.Length > 4? img.Next.Substring(0, 4) : img.Next;
+            var upd = imgY.Hash.Length > 4? imgY.Hash.Substring(0, 4) : imgY.Hash;
+            var message = $" [{lastcheck} ago] {img.Name}: {old} {AppConsts.CharRightArrow} {upd}";
             backgroundworker?.ReportProgress(0, message);
+            img.SetNext(imgY.Hash);
         }
 
         img.UpdateLastCheck();

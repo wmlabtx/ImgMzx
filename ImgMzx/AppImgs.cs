@@ -19,7 +19,6 @@ public static class AppImgs
     private static SqliteConnection _sqlConnection = new();
     private static SortedList<string, Img> _imgList = new(); // hash/img
     private static SortedList<string, string> _nameList = new(); // name/hash
-    private static SortedList<int, DateTime> _clusterList = new(); // id/lastview
 
     public static string Status { get; private set; } = string.Empty;
 
@@ -30,12 +29,10 @@ public static class AppImgs
             progress, 
             out SortedList<string, Img> imgList, 
             out SortedList<string, string> nameList,
-            out SortedList<int, DateTime> clusterList,
             out maxImages);
         lock (_lock) {
             _imgList = imgList;
             _nameList = nameList;
-            _clusterList = clusterList;
         }
     }
 
@@ -123,33 +120,6 @@ public static class AppImgs
         }
     }
 
-    public static List<Tuple<int, int, long, long>> GetClusters()
-    {
-        var clusters = new List<Tuple<int, int, long, long>>();
-        lock (_lock) {
-            var cpop = new int[AppConsts.MaxClusters];
-            var clc = new long[AppConsts.MaxClusters];
-            foreach (var img in _imgList.Values) {
-                var id = img.Id;
-                if (id == 0) {
-                    continue;
-                }
-
-                cpop[id - 1]++;
-                if (clc[id - 1] == 0 || img.LastCheck.Ticks > clc[id - 1]) {
-                    clc[id - 1] = img.LastCheck.Ticks;
-                }
-            }
-
-            for (var i = 0; i < cpop.Length; i++) {
-                var lv = _clusterList.ContainsKey(i + 1) ? _clusterList[i + 1].Ticks : 0;
-                clusters.Add(Tuple.Create(i + 1, cpop[i], clc[i], lv));
-            }
-        }
-
-        return clusters;
-    }
-
     public static List<Tuple<string, float>> GetBeam(Img img)
     {
         List<Img> shadow;
@@ -179,19 +149,14 @@ public static class AppImgs
 
     public static Img GetForCheck()
     {
-        var clusters = GetClusters().Where(e => e.Item2 > 0).ToList();
-        if (clusters.Count == 0) {
-            throw new Exception("No clusters found for check.");
-        }
-
-        var cluster = clusters.MinBy(e => e.Item3);
-        if (cluster == null) {
-            throw new Exception("No clusters found for check.");
-        }
-
         lock (_lock) {
-            var array = _imgList.Values.Where(e => e.Id == cluster.Item1).ToArray();
-            var imgX = array.MinBy(e => e.LastCheck);
+            foreach (var img in _imgList.Values) {
+                if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
+                    return img;
+                }
+            }
+
+            var imgX = _imgList.Values.MinBy(e => e.LastCheck);
             if (imgX == null) {
                 throw new Exception("No images found for check.");
             }
@@ -202,21 +167,21 @@ public static class AppImgs
 
     public static Img GetForView()
     {
-        var clusters = GetClusters().Where(e => e.Item2 > 0).ToList();
-        if (clusters.Count == 0) {
-            throw new Exception("No clusters found for view.");
-        }
-
-        var cluster = clusters.MinBy(e => e.Item4);
-        if (cluster == null) {
-            throw new Exception("No clusters found for view.");
-        }
-
         lock (_lock) {
-            var array = _imgList.Values.Where(e => e.Id == cluster.Item1).ToArray();
-            var imgX = array.MinBy(e => e.LastView);
-            if (imgX == null) {
-                throw new Exception("No images found for view.");
+            Img imgX = _imgList.Values.First();
+            var lvmin = long.MaxValue;
+            foreach (var img in _imgList.Values) {
+                if (img.Hash.Equals(img.Next)) {
+                    continue;
+                }
+
+                if (_imgList.TryGetValue(img.Next, out var imgY)) {
+                    var lvmax = Math.Max(img.LastView.Ticks, imgY.LastView.Ticks);
+                    if (lvmax < lvmin) {
+                        lvmin = lvmax;
+                        imgX = img;
+                    }
+                }
             }
 
             return imgX;
@@ -226,318 +191,34 @@ public static class AppImgs
     public static Img GetX(IProgress<string>? progress)
     {
         var imgX = GetForView();
-        _clusterList[imgX.Id] = DateTime.Now;
-        AppDatabase.ClusterUpdateProperty(imgX.Id, AppConsts.AttributeLastView, _clusterList[imgX.Id]);
         return imgX;
     }
 
     public static Img GetY(Img imgX, IProgress<string>? progress)
     {
-        var beam = GetBeam(imgX);
-        if (beam.Count == 0) {
-            throw new Exception("No images found for beam.");
+        Status = AppImgs.GetStatus();
+        if (AppImgs.TryGet(imgX.Next, out var imgY)) {
+            if (imgY != null) {
+                return imgY;
+            }
+            else {
+                throw new Exception("ImgY not found.");
+            }
         }
 
-        if (!TryGet(beam.First().Item1, out var imgY)) {
-            throw new Exception("Failed to get image by hash.");
-        }
+        return imgX;
+        // throw new Exception("ImgY not found.");
+    }
 
-        if (imgY == null) {
-            throw new Exception("Failed to get image by hash.");
-        }
-
+    public static string GetStatus()
+    {
         var sb = new StringBuilder();
         lock (_lock) {
             var diff = _imgList.Count - AppVars.MaxImages;
             sb.Append($"{_imgList.Count} ({diff})");
         }
 
-        Status = sb.ToString();
-
-        return imgY;
-    }
-
-    public static void DeleteAllClusters()
-    {
-        lock (_lock) {
-            _clusterList.Clear();
-            AppDatabase.DeleteAllClusters();
-        }
-    }
-
-    public static void InitClusters(IProgress<string>? progress)
-    {
-        Debug.WriteLine("Clean-up clusters...");
-        DeleteAllClusters();
-        Debug.WriteLine("Clean-up ids...");
-        lock (_lock) {
-            var scope = _imgList.Values.Where(img => img.Id > 0).ToArray();
-            foreach (var img in scope) {
-                img.SetId(0);
-            }
-        }
-        Debug.WriteLine("Looking for the first two cores...");
-        Img? imgFirst = null, imgSecond = null;
-        float maxDistance = -1f;
-        var dtn = DateTime.Now;
-        var array = _imgList.Values.ToArray();
-        var r1 = Random.Shared.Next(array.Length);
-        imgSecond = array[r1];
-        do {
-            var beam = GetBeam(imgSecond!);
-            var distance = beam.Last().Item2;
-            if (distance > maxDistance) {
-                maxDistance = distance;
-                imgFirst = imgSecond;
-                if (!TryGetByName(beam.Last().Item1, out imgSecond)) {
-                    throw new Exception("Failed to get the second image by name.");
-                }
-
-                Debug.WriteLine($"{imgFirst.Name}-{imgSecond!.Name} {maxDistance:F4}");
-            }
-            else {
-                break;
-            }
-        } while (true);
-
-        List<Img> imgList;
-        lock (_lock) {
-            imgList = _imgList.Values.ToList();
-        }
-
-        List<Img> clusters = new();
-
-        Add(1);
-        AppDatabase.AddCluster(1, DateTime.Now);
-        imgFirst!.SetId(1);
-        clusters.Add(imgFirst);
-        imgList.Remove(imgFirst);
-
-        Add(2);
-        AppDatabase.AddCluster(2, DateTime.Now);
-        imgSecond.SetId(2);
-        clusters.Add(imgSecond);
-        imgList.Remove(imgSecond);
-
-        for (var i = 3; i <= AppConsts.MaxClusters; i++) {
-            var distances = new float[clusters.Count, imgList.Count];
-            Parallel.For(0, clusters.Count, i1 => {
-                var clusterVector = clusters[i1].GetVector();
-                Parallel.For(0, imgList.Count, i2 => {
-                    distances[i1, i2] = AppVit.GetDistance(imgList[i2].GetVector(), clusterVector);
-                });
-            });
-
-            var rowMinimums = new float[imgList.Count];
-            Parallel.For(0, imgList.Count, i2 => {
-                rowMinimums[i2] = float.MaxValue;
-                for (var j = 0; j < clusters.Count; j++) {
-                    if (distances[j, i2] < rowMinimums[i2]) {
-                        rowMinimums[i2] = distances[j, i2];
-                    }
-                }
-            });
-
-            var maxIndex = -1;
-            var maxValue = -1f;
-            for (var j = 0; j < rowMinimums.Length; j++) {
-                if (rowMinimums[j] > maxValue) {
-                    maxValue = rowMinimums[j];
-                    maxIndex = j;
-                }
-            }
-
-            var imgCore = imgList[maxIndex];
-            Add(i);
-            AppDatabase.AddCluster(i, DateTime.Now);
-            imgCore.SetId(i);
-            clusters.Add(imgCore);
-            imgList.Remove(imgCore);
-            Debug.WriteLine($"Cluster #{i}: {imgCore.Name} {maxValue:F4}");
-        }
-    }
-
-
-    public static void Add(int id)
-    {
-        lock (_lock) {
-            _clusterList.Add(id, DateTime.Now);
-        }
-    }
-
-    public static int ClusterCount()
-    {
-        int count;
-        lock (_lock) {
-            count = _clusterList.Count;
-        }
-
-        return count;
-    }
-
-    public static int GetPopulation(int id)
-    {
-        int population;
-        lock (_lock) {
-            if (_clusterList.ContainsKey(id)) {
-                population = _imgList.Count(e => e.Value.Id == id);
-            }
-            else {
-                return 0;
-            }
-        }
-
-        return population;
-    }
-
-    public static List<Tuple<int, int>> CheckForEmptyClusters()
-    {
-        var cpop = new List<Tuple<int, int>>();
-        lock (_lock) {
-            do {
-                var craw = new int[AppConsts.MaxClusters];
-                foreach (var img in _imgList.Values) {
-                    var id = img.Id;
-                    if (id == 0) {
-                        continue;
-                    }
-
-                    craw[id - 1]++;
-                }
-
-                cpop.Clear();
-                for (var i = 0; i < craw.Length; i++) {
-                    cpop.Add(Tuple.Create(i + 1, craw[i]));
-                }
-
-                cpop = cpop.OrderByDescending(e => e.Item2).ToList();
-                var cfirst = cpop.First();
-                var clast = cpop.Last();
-                if (clast.Item2 == 0) {
-                    Img? imgFirst = null, imgSecond = null;
-                    float maxDistance = -1f;
-                    var array = _imgList.Values.Where(e => e.Id == cfirst.Item1).ToArray();
-                    var r1 = Random.Shared.Next(array.Length);
-                    imgSecond = array[r1];
-                    do {
-                        var distances = new float[array.Length];
-                        var vx = imgSecond.GetVector();
-                        Parallel.For(0, distances.Length, i => { distances[i] = AppVit.GetDistance(vx, array[i].GetVector()); });
-                        var maxIndex = 0;
-                        for (var i = 1; i < distances.Length; i++) {
-                            if (distances[i] > distances[maxIndex]) {
-                                maxIndex = i;
-                            }
-                        }
-
-                        var distance = distances[maxIndex];
-                        if (distance > maxDistance) {
-                            maxDistance = distance;
-                            imgFirst = imgSecond;
-                            imgSecond = array[maxIndex];
-                            Debug.WriteLine($"{imgFirst.Name}-{imgSecond!.Name} {maxDistance:F4}");
-                        }
-                        else {
-                            break;
-                        }
-                    } while (true);
-
-                    imgFirst!.SetId(clast.Item1);
-                }
-                else {
-                    break;
-                }
-            } while (true);
-        }
-
-        return cpop;
-    }
-
-    public static (Img, int) CheckCluster(Img img, List<Tuple<string, float>> beam)
-    {
-        lock (_lock) {
-            if (img.Id == 0) {
-                foreach (var b in beam) {
-                    if (!_imgList.TryGetValue(b.Item1, out var imgB)) {
-                        continue;
-                    }
-
-                    var id = imgB!.Id;
-                    if (id == 0) {
-                        continue;
-                    }
-
-                    return (img, id);
-                }
-
-                throw new Exception("No clusters found for the image.");
-            }
-
-            foreach (var b in beam) {
-                if (!_imgList.TryGetValue(b.Item1, out var imgB)) {
-                    continue;
-                }
-
-                var id = imgB!.Id;
-                if (id == img.Id) {
-                    continue;
-                }
- 
-                if (id == 0) {
-                    return (imgB, img.Id);
-                }
-
-                var pop = _imgList.Values.Count(e => e.Id == img.Id);
-                var popB = _imgList.Values.Count(e => e.Id == id);
-                if (pop - 1 > popB + 1) {
-                    return (img, id);
-                }
-
-                if (popB - 1 > pop + 1) {
-                    return (imgB, img.Id);
-                }
-
-                return (img, img.Id);
-            }
-
-            throw new Exception("No clusters found for the image.");
-        }
-    }
-
-    public static int FindCluster(float[] vector)
-    {
-        List<Img> shadow;
-        lock (_lock) {
-            shadow = new List<Img>(_imgList.Values);
-        }
-
-        var distances = new float[shadow.Count];
-        Parallel.For(0, distances.Length, i => { distances[i] = AppVit.GetDistance(vector, shadow[i].GetVector()); });
-
-        var beam = new List<Tuple<string, float>>(shadow.Count);
-        for (var i = 0; i < shadow.Count; i++) {
-            beam.Add(Tuple.Create(shadow[i].Hash, distances[i]));
-        }
-
-        beam = beam.OrderBy(e => e.Item2).ToList();
-
-        int id;
-        lock (_lock) {
-            foreach (var b in beam) {
-                if (!_imgList.TryGetValue(b.Item1, out var imgB)) {
-                    continue;
-                }
-
-                id = imgB!.Id;
-                if (id == 0) {
-                    continue;
-                }
-
-                return id;
-            }
-        }
-
-        throw new Exception("No clusters found for the image.");
+        return sb.ToString();
     }
 
     public static List<Img> GetAllImages()
@@ -598,6 +279,7 @@ public static class AppImgs
         }
     }
 
+    /*
     public static int GetNewFamily()
     {
         lock (_lock) {
@@ -644,4 +326,5 @@ public static class AppImgs
             }
         }
     }
+    */
 }

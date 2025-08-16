@@ -14,10 +14,8 @@ public static class AppConsts
     public const string PathRawProtected = @"M:\raw";
 
     public const int MaxImportFiles = 100;
-    public const int MaxHistorySize = 100;
     public const int VectorSize = 1024;
     public const int HashLength = 64;
-    public const int MaxClusters = 255;
 
     public const char CharEllipsis = '\u2026';
     public const char CharRightArrow = '\u2192';
@@ -35,13 +33,8 @@ public static class AppConsts
     public const string AttributeLastView = "lastview";
     public const string AttributeScore = "score";
     public const string AttributeLastCheck = "lastcheck";
-    public const string AttributeId = "id";
-    public const string AttributeFamily = "family";
+    public const string AttributeNext = "next";
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
-
-    public const string TableClusters = "clusters";
-
-    public const string TableFamilies = "families";
 }
