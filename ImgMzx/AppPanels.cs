@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using SixLabors.ImageSharp.PixelFormats;
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Security.Policy;
 
@@ -126,10 +127,31 @@ public static class AppPanels
             Debug.Assert(imgY != null);
             
             imgX.UpdateLastView();
-            imgX.SetScore(imgX.Score + 1);
-
             imgY.UpdateLastView();
-            imgY.SetScore(imgY.Score + 1);
+
+            var beam = AppImgs.GetBeam(imgX);
+            if (beam.Count == 0) {
+                throw new Exception("No images found for beam.");
+            }
+
+            var score = 0;
+            var next = beam[0].Item1;
+            for (score = 0; score < beam.Count; score++) {
+                if (beam[score].Item1.Equals(imgX.Next)) {
+                    if (imgX.Score == score) {
+                        score++;
+                        imgX.SetScore(score);
+                        next = beam[score].Item1;
+                        imgX.SetNext(next);
+                        return;
+                    }
+                }
+            }
+
+            score = 0;
+            imgX.SetScore(score);
+            next = beam[0].Item1;
+            imgX.SetNext(next);
         }
     }
 
@@ -148,7 +170,6 @@ public static class AppPanels
         if (AppImgs.TryGet(hashX, out var imgX)) {
             Debug.Assert(imgX != null);
             imgX.UpdateLastView();
-            imgX.SetScore(imgX.Score + 1);
         }
     }
 

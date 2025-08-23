@@ -19,6 +19,7 @@ public static class AppImgs
     private static SqliteConnection _sqlConnection = new();
     private static SortedList<string, Img> _imgList = new(); // hash/img
     private static SortedList<string, string> _nameList = new(); // name/hash
+    private static SortedList<string, DateTime> _lvList = new();
 
     public static string Status { get; private set; } = string.Empty;
 
@@ -168,6 +169,38 @@ public static class AppImgs
     public static Img GetForView()
     {
         lock (_lock) {
+            Img? imgX = null;
+            var maxAge = 0.0;
+            foreach (var img in _imgList.Values) {
+                if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
+                    continue;
+                }
+
+                var age = DateTime.Now.Subtract(img.LastView).TotalDays;
+                age += Random.Shared.NextDouble() * 365.0;
+                if (imgX == null || img.Score < imgX.Score) {
+                    maxAge = age;
+                    imgX = img;
+                }
+                else if (img.Score == imgX.Score && age > maxAge) {
+                    maxAge = age;
+                    imgX = img;
+                }
+            }
+
+            /*
+
+            foreach (var img in _imgList.Values) {
+                if (_lvList.TryGetValue(img.Hash, out var lastView)) {
+                    if (img.LastView.Ticks > lastView.Ticks) {
+                        _lvList[img.Hash] = img.LastView;
+                    }
+                }
+                else {
+                    _lvList.Add(img.Hash, img.LastView);
+                }
+            }
+
             Img imgX = _imgList.Values.First();
             var lvmin = long.MaxValue;
             foreach (var img in _imgList.Values) {
@@ -183,8 +216,9 @@ public static class AppImgs
                     }
                 }
             }
+            */
 
-            return imgX;
+            return imgX!;
         }
     }
 

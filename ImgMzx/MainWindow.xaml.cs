@@ -96,6 +96,12 @@ namespace ImgMzx
             ToggleXorClick();
         }
 
+        private void FamilySetClick(object sender, RoutedEventArgs e)
+        {
+            var family = (string)((MenuItem)sender).Tag;
+            FamilySetClick(family);
+        }
+
         private void FamilyAddClick(object sender, RoutedEventArgs e)
         {
             FamilyAddClick();

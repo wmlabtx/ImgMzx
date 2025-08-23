@@ -154,6 +154,10 @@ public sealed partial class MainWindow
                 sb.Append($" +{panels[index]!.Img.Score}");
             }
 
+            if (!string.IsNullOrEmpty(panels[index]!.Img.Family)) {
+                sb.Append($" [{panels[index]!.Img.Family}]");
+            }
+
             sb.AppendLine();
 
             sb.Append($"{Helper.SizeToString(panels[index]!.Size)} ");
@@ -279,37 +283,31 @@ public sealed partial class MainWindow
         AppPanels.UpdateRightPanel(AppVars.Progress);
         DrawCanvas();
         EnableElements();
-        }
+    }
+
+    private void FamilySetClick(string family)
+    {
+        DisableElements();
+        var imgX = AppPanels.GetImgPanel(0)!.Img;
+        imgX.SetFamily(family);
+        DrawCanvas();
+        EnableElements();
+    }
 
     private void FamilyAddClick()
     {
-        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
-        if (imgX.Family == 0 && imgY.Family == 0) {
-            var family = AppImgs.GetNewFamily();
-            imgX.SetFamily(family);
-            imgY.SetFamily(family);
-        }
-        else if (imgX.Family == 0 && imgY.Family != 0) {
+        if (string.IsNullOrEmpty(imgX.Family) && !string.IsNullOrEmpty(imgY.Family)) {
             imgX.SetFamily(imgY.Family);
         }
-        else if (imgX.Family != 0 && imgY.Family == 0) {
+        else if (!string.IsNullOrEmpty(imgX.Family) && string.IsNullOrEmpty(imgY.Family)) {
             imgY.SetFamily(imgX.Family);
-        }
-        else {
-            if (imgX.Family < imgY.Family) {
-                AppImgs.MoveFamily(imgY.Family, imgX.Family);
-            }
-            else if (imgX.Family > imgY.Family) {
-                AppImgs.MoveFamily(imgX.Family, imgY.Family);
-            }
         }
 
         DrawCanvas();
         EnableElements();
-        */
     }
 
     private void FamilyRemoveClick()

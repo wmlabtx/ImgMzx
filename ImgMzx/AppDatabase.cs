@@ -48,7 +48,8 @@ public static class AppDatabase
         sb.Append($"{AppConsts.AttributeLastView},"); // 5
         sb.Append($"{AppConsts.AttributeNext},"); // 6
         sb.Append($"{AppConsts.AttributeScore},"); // 7
-        sb.Append($"{AppConsts.AttributeLastCheck}"); // 8
+        sb.Append($"{AppConsts.AttributeLastCheck},"); // 8
+        sb.Append($"{AppConsts.AttributeFamily}"); // 9
         sb.Append($" FROM {AppConsts.TableImages};");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
         using var reader = sqlCommand.ExecuteReader();
@@ -64,6 +65,7 @@ public static class AppDatabase
                 var next = reader.GetString(6);
                 var score = (int)reader.GetInt64(7);
                 var lastcheck = DateTime.FromBinary(reader.GetInt64(8));
+                var family = reader.GetString(9);
 
                 var img = new Img(
                     hash: hash,
@@ -74,7 +76,8 @@ public static class AppDatabase
                     lastview: lastview,
                     score: score,
                     lastcheck: lastcheck,
-                    next: next
+                    next: next,
+                    family: family
                 );
 
                 imgList.Add(img.Hash, img);
@@ -126,7 +129,8 @@ public static class AppDatabase
                 sb.Append($"{AppConsts.AttributeLastView},");
                 sb.Append($"{AppConsts.AttributeNext},");
                 sb.Append($"{AppConsts.AttributeScore},");
-                sb.Append($"{AppConsts.AttributeLastCheck}");
+                sb.Append($"{AppConsts.AttributeLastCheck},");
+                sb.Append($"{AppConsts.AttributeFamily}");
                 sb.Append(") VALUES (");
                 sb.Append($"@{AppConsts.AttributeHash},");
                 sb.Append($"@{AppConsts.AttributeName},");
@@ -136,7 +140,8 @@ public static class AppDatabase
                 sb.Append($"@{AppConsts.AttributeLastView},");
                 sb.Append($"@{AppConsts.AttributeNext},");
                 sb.Append($"@{AppConsts.AttributeScore},");
-                sb.Append($"@{AppConsts.AttributeLastCheck}");
+                sb.Append($"@{AppConsts.AttributeLastCheck},");
+                sb.Append($"@{AppConsts.AttributeFamily}");
                 sb.Append(')');
                 sqlCommand.CommandText = sb.ToString();
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
@@ -148,6 +153,7 @@ public static class AppDatabase
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeNext}", img.Next);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeScore}", img.Score);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.GetRawLastCheck());
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", img.Family);
                 sqlCommand.ExecuteNonQuery();
             }
         }

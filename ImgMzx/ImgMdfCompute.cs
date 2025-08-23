@@ -130,7 +130,8 @@ public static partial class ImgMdf
             lastview: lastview,
             score: 0,
             lastcheck: new DateTime(1980, 1, 1),
-            next: string.Empty
+            next: string.Empty,
+            family: string.Empty
         );
 
         AppImgs.Add(imgnew);
@@ -229,7 +230,8 @@ public static partial class ImgMdf
                     lastview: img.LastView,
                     score: img.Score,
                     lastcheck: img.LastCheck,
-                    next: string.Empty
+                    next: string.Empty,
+                    family: img.Family
                 );
 
                 AppImgs.Delete(img.Hash);
@@ -250,7 +252,19 @@ public static partial class ImgMdf
             throw new Exception("No images found for beam.");
         }
 
-        if (!AppImgs.TryGet(beam.First().Item1, out var imgY)) {
+        var score = 0;
+        for (score = 0; score < beam.Count; score++) {
+            if (beam[score].Item1.Equals(img.Next)) {
+                break;
+            }
+        }
+
+        if (score >= beam.Count || score != img.Score) {
+            score = 0;
+        }
+
+        var hashY = beam[score].Item1;
+        if (!AppImgs.TryGet(hashY, out var imgY)) {
             throw new Exception("Failed to get image by hash.");
         }
 
@@ -258,13 +272,14 @@ public static partial class ImgMdf
             throw new Exception("Failed to get image by hash.");
         }
 
-        if (!img.Next.Equals(imgY.Hash)) {
+        if (!img.Next.Equals(imgY.Hash) || score != img.Score) {
             var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
             var old = img.Next.Length > 4? img.Next.Substring(0, 4) : img.Next;
             var upd = imgY.Hash.Length > 4? imgY.Hash.Substring(0, 4) : imgY.Hash;
-            var message = $" [{lastcheck} ago] {img.Name}: {old} {AppConsts.CharRightArrow} {upd}";
+            var message = $" [{lastcheck} ago] {img.Name}: {old}[{img.Score}] {AppConsts.CharRightArrow} {upd}[{score}]";
             backgroundworker?.ReportProgress(0, message);
             img.SetNext(imgY.Hash);
+            img.SetScore(score);
         }
 
         img.UpdateLastCheck();

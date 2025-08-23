@@ -18,6 +18,7 @@ public class Img
     public bool Verified { get; private set; }
     public int Score { get; private set; }
     public string Next { get; private set; }
+    public string Family { get; private set; }
 
     private float[] _vector;
 
@@ -30,7 +31,8 @@ public class Img
         FlipMode flipmode,
         int score,
         DateTime lastcheck,
-        string next
+        string next,
+        string family
         )
     {
         Hash = hash;
@@ -41,6 +43,7 @@ public class Img
         Score = score;
         LastCheck = lastcheck;
         Next = next;
+        Family = family;
 
         _vector = vector;
     }
@@ -105,5 +108,10 @@ public class Img
     {
         Next = next;
         AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeNext, next);
+    }
+    public void SetFamily(string family)
+    {
+        Family = family;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeFamily, family);
     }
 }
