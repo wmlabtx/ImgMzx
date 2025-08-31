@@ -16,6 +16,7 @@ public static class AppConsts
     public const int MaxImportFiles = 100;
     public const int VectorSize = 1024;
     public const int HashLength = 64;
+    public const float MaxSim = 0.48f;
 
     public const char CharEllipsis = '\u2026';
     public const char CharRightArrow = '\u2192';

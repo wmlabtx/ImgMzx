@@ -166,7 +166,8 @@ public sealed partial class MainWindow
             }
 
             if (panels[index]!.Img.Id > 0) {
-                sb.Append($" #{panels[index]!.Img.Id:D3}");
+                var pop = AppImgs.GetPopulation(panels[index]!.Img.Id);
+                sb.Append($" #{panels[index]!.Img.Id:D5}[{pop}]");
             }
 
             sb.AppendLine();

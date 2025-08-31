@@ -154,23 +154,44 @@ public static class AppImgs
     {
 
         lock (_lock) {
-            Img imgX;
-            var zeros = _imgList.Values.Where(e => e.Id == 0).ToArray();
-            if (zeros.Length > 0) {
-                imgX = zeros.OrderBy(e => e.LastCheck).First();
-            }
-            else {
-                imgX = _imgList.Values.Where(e => e.Id == AppVars.LcId).OrderBy(e => e.LastCheck).First();
-                AppDatabase.UpdateLcId();
+            foreach (var e in _imgList.Values) {
+                if (e.Hash.Equals(e.Next) || !_imgList.ContainsKey(e.Next)) {
+                    return e;
+                }
             }
 
-            return imgX;
+            var imgX = _imgList.Values.MinBy(e => e.LastCheck);
+            return imgX!;
         }
     }
 
     public static Img GetForView()
     {
         lock (_lock) {
+            var ids = new SortedSet<int>();
+            foreach (var img in _imgList.Values) {
+                if (img.Id > 0) {
+                    ids.Add(img.Id);
+                }
+            }
+
+            var lvId = AppVars.LvId;
+            if (!ids.Contains(lvId)) {
+                lvId = 0;
+                var array = ids.ToArray();
+                for (var i = 0; i < array.Length; i++) {
+                    if (array[i] > AppVars.LvId) {
+                        lvId = array[i];
+                        break;
+                    }
+                }
+
+                if (lvId == 0 && array.Length > 0) {
+                    lvId = array[0];
+                }
+            }
+
+            AppVars.LvId = lvId;
             var scope = _imgList.Values.Where(e => e.Id == AppVars.LvId).ToArray();
             foreach (var img in _imgList.Values) {
                 if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
@@ -398,38 +419,63 @@ public static class AppImgs
         return population;
     }
 
-    public static (Img, int) CheckCluster(Img img, List<Tuple<string, float>> beam)
+    public static int GetAvailableId()
     {
         lock (_lock) {
-            var pimg = GetPopulation(img.Id);
-            for (var i = 0; i < 8; i++) {
-                if (!_imgList.TryGetValue(beam[i].Item1, out var nb) || nb == null) {
-                    throw new Exception("Neighbor image not found.");
-                }
-
-                if (nb.Id == img.Id) {
-                    continue;
-                }
-
-                if (img.Id > 0 && nb.Id == 0) {
-                    return (nb, img.Id);
-                }
-
-                if (img.Id == 0 && nb.Id > 0) {
-                    return (img, nb.Id);
-                }
-
-                var pnb = GetPopulation(nb.Id);
-                if (pimg - 1 >= pnb + 1) {
-                    return (img, nb.Id);
-                }
-
-                if (pnb - 1 >= pimg + 1) {
-                    return (nb, img.Id);
+            var ids = new SortedSet<int>();
+            foreach (var img in _imgList.Values) {
+                if (img.Id > 0) {
+                    ids.Add(img.Id);
                 }
             }
 
-            return (img, img.Id);
+            var array = ids.ToArray();
+            if (array.Length == 0) {
+                return 1;
+            }
+
+            for (var i = 0; i < array.Length; i++) {
+                if (array[i] > i + 1) {
+                    return i + 1;
+                }
+            }
+
+            return array.Length + 1;
+        }
+    }
+
+    public static int CheckCluster(Img img, List<Tuple<string, float>> beam)
+    {
+        lock (_lock) {
+            var pop = new SortedSet<int>();
+            for (var i = 0; i < beam.Count; i++) {
+                if (!_imgList.TryGetValue(beam[i].Item1, out var nb) || nb == null) {
+                    continue;
+                }
+
+                if (nb.Id == 0) {
+                    continue;
+                }
+
+                if (beam[i].Item2 < AppConsts.MaxSim) {
+                    pop.Add(nb.Id);
+                }
+                else {
+                    pop.Remove(nb.Id);
+                }
+            }
+
+            if (pop.Count == 0) {
+                return GetAvailableId();
+            }
+
+            var nId = pop.Min();
+            if (img.Id == 0) {
+                return nId;
+            }
+
+            nId  = Math.Min(nId, img.Id);
+            return nId;
         }
     }
 }

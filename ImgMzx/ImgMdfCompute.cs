@@ -282,14 +282,14 @@ public static partial class ImgMdf
             img.SetScore(score);
         }
         else {
-            (Img nImg, int nId) = AppImgs.CheckCluster(img, beam);
-            var oId = nImg.Id;
+            var nId = AppImgs.CheckCluster(img, beam);
+            var oId = img.Id;
             if (oId != nId) {
-                var oP = AppImgs.GetPopulation(nImg.Id);
-                nImg.SetId(nId);
+                var oP = AppImgs.GetPopulation(oId);
+                img.SetId(nId);
                 var nP = AppImgs.GetPopulation(nId);
                 var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
-                var message = $" [{lastcheck} ago] {img.Name}: {oId:D3} [{oP}] {AppConsts.CharRightArrow} {nId:D3} [{nP}]";
+                var message = $" [{lastcheck} ago] {img.Name}: {oId:D5} [{oP}] {AppConsts.CharRightArrow} {nId:D5} [{nP}]";
                 backgroundworker?.ReportProgress(0, message);
             }
         }
