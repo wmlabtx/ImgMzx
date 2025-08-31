@@ -176,8 +176,9 @@ public static class AppPanels
     public static void Export(IProgress<string>? progress)
     {
         progress?.Report($"Exporting{AppConsts.CharEllipsis}");
-        var filename = ImgMdf.Export(_imgPanels[0]!.Img.Hash);
-        progress?.Report($"Exported to {filename}");
+        var filename0 = ImgMdf.Export(_imgPanels[0]!.Img.Hash);
+        var filename1 = ImgMdf.Export(_imgPanels[1]!.Img.Hash);
+        progress?.Report($"Exported to {filename0} and {filename1}");
     }
 
     private static void UpdateStatus(IProgress<string>? progress)

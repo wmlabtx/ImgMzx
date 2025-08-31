@@ -9,6 +9,7 @@ namespace ImgMzx
         public static bool ShowXOR { get; set; }
         public static bool ImportRequested { get; set; }
         public static int MaxImages { get; set; }
-        public static int NextId { get; set; }
+        public static int LcId { get; set; }
+        public static int LvId { get; set; }
     }
 }

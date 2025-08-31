@@ -18,7 +18,7 @@ public class Img
     public bool Verified { get; private set; }
     public int Score { get; private set; }
     public string Next { get; private set; }
-    public string Family { get; private set; }
+    public int Id { get; private set; }
 
     private float[] _vector;
 
@@ -32,7 +32,7 @@ public class Img
         int score,
         DateTime lastcheck,
         string next,
-        string family
+        int id
         )
     {
         Hash = hash;
@@ -43,7 +43,7 @@ public class Img
         Score = score;
         LastCheck = lastcheck;
         Next = next;
-        Family = family;
+        Id = id;
 
         _vector = vector;
     }
@@ -109,9 +109,9 @@ public class Img
         Next = next;
         AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeNext, next);
     }
-    public void SetFamily(string family)
+    public void SetId(int id)
     {
-        Family = family;
-        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeFamily, family);
+        Id = id;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeId, id);
     }
 }

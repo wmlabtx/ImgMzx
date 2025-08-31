@@ -131,7 +131,7 @@ public static partial class ImgMdf
             score: 0,
             lastcheck: new DateTime(1980, 1, 1),
             next: string.Empty,
-            family: string.Empty
+            id: 0
         );
 
         AppImgs.Add(imgnew);
@@ -169,7 +169,7 @@ public static partial class ImgMdf
     private static void Compute(BackgroundWorker backgroundworker)
     {
         if (AppVars.ImportRequested) {
-            AppVars.MaxImages = (int)Math.Round(AppVars.MaxImages * 0.9996);
+            AppVars.MaxImages = AppVars.MaxImages - 100;
             AppDatabase.UpdateMaxImages();
             var lastview = AppImgs.GetMinimalLastView();
             _added = 0;
@@ -231,7 +231,7 @@ public static partial class ImgMdf
                     score: img.Score,
                     lastcheck: img.LastCheck,
                     next: string.Empty,
-                    family: img.Family
+                    id: img.Id
                 );
 
                 AppImgs.Delete(img.Hash);
@@ -280,6 +280,18 @@ public static partial class ImgMdf
             backgroundworker?.ReportProgress(0, message);
             img.SetNext(imgY.Hash);
             img.SetScore(score);
+        }
+        else {
+            (Img nImg, int nId) = AppImgs.CheckCluster(img, beam);
+            var oId = nImg.Id;
+            if (oId != nId) {
+                var oP = AppImgs.GetPopulation(nImg.Id);
+                nImg.SetId(nId);
+                var nP = AppImgs.GetPopulation(nId);
+                var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
+                var message = $" [{lastcheck} ago] {img.Name}: {oId:D3} [{oP}] {AppConsts.CharRightArrow} {nId:D3} [{nP}]";
+                backgroundworker?.ReportProgress(0, message);
+            }
         }
 
         img.UpdateLastCheck();

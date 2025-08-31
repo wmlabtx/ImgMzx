@@ -48,8 +48,19 @@ public sealed partial class MainWindow
 
         AppVars.Progress = new Progress<string>(message => Status.Text = message);
 
-        await Task.Run(() => { AppImgs.Load(AppConsts.FileDatabase, AppVars.Progress, out int maxImages); AppVars.MaxImages = maxImages; }).ConfigureAwait(true);
+        await Task.Run(() => { AppImgs.Load(AppConsts.FileDatabase, AppVars.Progress, out int maxImages, out int lcId, out int lvId); 
+            AppVars.MaxImages = maxImages; 
+            AppVars.LcId = lcId;
+            AppVars.LvId = lvId;    
+        }).ConfigureAwait(true);
         await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
+
+        /*
+        if (AppImgs.TryGetByName("580b77", out var img1) && AppImgs.TryGetByName("86f22e", out var img2)) {
+            var filename0 = ImgMdf.Export(img1!.Hash);
+            var filename1 = ImgMdf.Export(img2!.Hash);
+        }
+        */
 
         DrawCanvas();
 
@@ -154,8 +165,8 @@ public sealed partial class MainWindow
                 sb.Append($" +{panels[index]!.Img.Score}");
             }
 
-            if (!string.IsNullOrEmpty(panels[index]!.Img.Family)) {
-                sb.Append($" [{panels[index]!.Img.Family}]");
+            if (panels[index]!.Img.Id > 0) {
+                sb.Append($" #{panels[index]!.Img.Id:D3}");
             }
 
             sb.AppendLine();
@@ -287,15 +298,18 @@ public sealed partial class MainWindow
 
     private void FamilySetClick(string family)
     {
+        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         imgX.SetFamily(family);
         DrawCanvas();
         EnableElements();
+        */
     }
 
     private void FamilyAddClick()
     {
+        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
@@ -308,6 +322,7 @@ public sealed partial class MainWindow
 
         DrawCanvas();
         EnableElements();
+        */
     }
 
     private void FamilyRemoveClick()

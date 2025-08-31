@@ -7,6 +7,7 @@ using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Runtime.InteropServices;
 using System.Security.Policy;
 using System.Text;
 using System.Windows;
@@ -19,18 +20,19 @@ public static class AppImgs
     private static SqliteConnection _sqlConnection = new();
     private static SortedList<string, Img> _imgList = new(); // hash/img
     private static SortedList<string, string> _nameList = new(); // name/hash
-    private static SortedList<string, DateTime> _lvList = new();
 
     public static string Status { get; private set; } = string.Empty;
 
-    public static void Load(string filedatabase, IProgress<string>? progress, out int maxImages)
+    public static void Load(string filedatabase, IProgress<string>? progress, out int maxImages, out int lcId, out int lvId)
     {
         AppDatabase.Load(
-            filedatabase, 
-            progress, 
-            out SortedList<string, Img> imgList, 
+            filedatabase,
+            progress,
+            out SortedList<string, Img> imgList,
             out SortedList<string, string> nameList,
-            out maxImages);
+            out maxImages,
+            out lcId,
+            out lvId);
         lock (_lock) {
             _imgList = imgList;
             _nameList = nameList;
@@ -150,16 +152,16 @@ public static class AppImgs
 
     public static Img GetForCheck()
     {
-        lock (_lock) {
-            foreach (var img in _imgList.Values) {
-                if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
-                    return img;
-                }
-            }
 
-            var imgX = _imgList.Values.MinBy(e => e.LastCheck);
-            if (imgX == null) {
-                throw new Exception("No images found for check.");
+        lock (_lock) {
+            Img imgX;
+            var zeros = _imgList.Values.Where(e => e.Id == 0).ToArray();
+            if (zeros.Length > 0) {
+                imgX = zeros.OrderBy(e => e.LastCheck).First();
+            }
+            else {
+                imgX = _imgList.Values.Where(e => e.Id == AppVars.LcId).OrderBy(e => e.LastCheck).First();
+                AppDatabase.UpdateLcId();
             }
 
             return imgX;
@@ -169,9 +171,18 @@ public static class AppImgs
     public static Img GetForView()
     {
         lock (_lock) {
+            var scope = _imgList.Values.Where(e => e.Id == AppVars.LvId).ToArray();
+            foreach (var img in _imgList.Values) {
+                if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
+                    continue;
+                }
+            }
+
+            AppDatabase.UpdateLvId();
+
             Img? imgX = null;
             var maxAge = 0.0;
-            foreach (var img in _imgList.Values) {
+            foreach (var img in scope) {
                 if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
                     continue;
                 }
@@ -188,36 +199,6 @@ public static class AppImgs
                 }
             }
 
-            /*
-
-            foreach (var img in _imgList.Values) {
-                if (_lvList.TryGetValue(img.Hash, out var lastView)) {
-                    if (img.LastView.Ticks > lastView.Ticks) {
-                        _lvList[img.Hash] = img.LastView;
-                    }
-                }
-                else {
-                    _lvList.Add(img.Hash, img.LastView);
-                }
-            }
-
-            Img imgX = _imgList.Values.First();
-            var lvmin = long.MaxValue;
-            foreach (var img in _imgList.Values) {
-                if (img.Hash.Equals(img.Next)) {
-                    continue;
-                }
-
-                if (_imgList.TryGetValue(img.Next, out var imgY)) {
-                    var lvmax = Math.Max(img.LastView.Ticks, imgY.LastView.Ticks);
-                    if (lvmax < lvmin) {
-                        lvmin = lvmax;
-                        imgX = img;
-                    }
-                }
-            }
-            */
-
             return imgX!;
         }
     }
@@ -233,6 +214,8 @@ public static class AppImgs
         Status = AppImgs.GetStatus();
         if (AppImgs.TryGet(imgX.Next, out var imgY)) {
             if (imgY != null) {
+                var distance = AppVit.GetDistance(imgX.GetVector(), imgY.GetVector());
+                Status += $" {distance:F4}";
                 return imgY;
             }
             else {
@@ -313,52 +296,140 @@ public static class AppImgs
         }
     }
 
-    /*
-    public static int GetNewFamily()
+    public static void InitClusters(IProgress<string>? progress)
     {
+        Debug.WriteLine("Clean-up ids...");
         lock (_lock) {
-            var ids = _imgList.Where(e => e.Value.Family > 0).Select(e => e.Value.Family).Distinct().OrderBy(e => e).ToArray();
-            if (ids.Length == 0) {
-                return 1;
+            var scope = _imgList.Values.Where(img => img.Id > 0).ToArray();
+            foreach (var img in scope) {
+                img.SetId(0);
+            }
+        }
+        Debug.WriteLine("Looking for the first two cores...");
+        Img? imgFirst = null, imgSecond = null;
+        float maxDistance = -1f;
+        var dtn = DateTime.Now;
+        var array = _imgList.Values.ToArray();
+        var r1 = Random.Shared.Next(array.Length);
+        imgSecond = array[r1];
+        do {
+            var beam = GetBeam(imgSecond!);
+            var distance = beam.Last().Item2;
+            if (distance > maxDistance) {
+                maxDistance = distance;
+                imgFirst = imgSecond;
+                if (!TryGet(beam.Last().Item1, out imgSecond)) {
+                    throw new Exception("Failed to get the second image by name.");
+                }
+
+                Debug.WriteLine($"{imgFirst.Name}-{imgSecond!.Name} {maxDistance:F4}");
+            }
+            else {
+                break;
+            }
+        } while (true);
+
+        List<Img> imgList;
+        lock (_lock) {
+            imgList = _imgList.Values.ToList();
+        }
+
+        List<Img> clusters = new();
+
+        imgFirst!.SetId(1);
+        clusters.Add(imgFirst);
+        imgList.Remove(imgFirst);
+
+        imgSecond.SetId(2);
+        clusters.Add(imgSecond);
+        imgList.Remove(imgSecond);
+
+        for (var i = 3; i <= 999; i++) {
+            var tmp = new List<Img>(imgList);
+            var scope = new List<Img>();
+            for (var j = 0; j < 1000; j++) {
+                var r = Random.Shared.Next(tmp.Count);
+                scope.Add(tmp[r]);
+                tmp.RemoveAt(r);
             }
 
-            if (ids.Length == ids.Last()) {
-                return ids.Length + 1;
-            }
+            var distances = new float[clusters.Count, scope.Count];
+            Parallel.For(0, clusters.Count, i1 => {
+                var clusterVector = clusters[i1].GetVector();
+                Parallel.For(0, scope.Count, i2 => {
+                    distances[i1, i2] = AppVit.GetDistance(scope[i2].GetVector(), clusterVector);
+                });
+            });
 
-            for (int i = 0; i < ids.Length; i++) {
-                if (ids[i] > i + 1) {
-                    return i + 1;
+            var rowMinimums = new float[scope.Count];
+            Parallel.For(0, scope.Count, i2 => {
+                rowMinimums[i2] = float.MaxValue;
+                for (var j = 0; j < clusters.Count; j++) {
+                    if (distances[j, i2] < rowMinimums[i2]) {
+                        rowMinimums[i2] = distances[j, i2];
+                    }
+                }
+            });
+
+            var maxIndex = -1;
+            var maxValue = -1f;
+            for (var j = 0; j < rowMinimums.Length; j++) {
+                if (rowMinimums[j] > maxValue) {
+                    maxValue = rowMinimums[j];
+                    maxIndex = j;
                 }
             }
 
-            throw new Exception("No family found.");
+            var imgCore = scope[maxIndex];
+            imgCore.SetId(i);
+            clusters.Add(imgCore);
+            imgList.Remove(imgCore);
+            Debug.WriteLine($"Cluster #{i}: {imgCore.Name} {maxValue:F4}");
         }
     }
 
-    public static int GetFamilySize(int family)
+    public static int GetPopulation(int id)
     {
+        int population;
         lock (_lock) {
-            return _imgList.Count(e => e.Value.Family == family);
+            population = _imgList.Count(e => e.Value.Id == id);
         }
+
+        return population;
     }
 
-    public static List<Img> GetFamily(int family)
+    public static (Img, int) CheckCluster(Img img, List<Tuple<string, float>> beam)
     {
         lock (_lock) {
-            return _imgList.Values.Where(e => e.Family == family).ToList();
-        }
-    }
+            var pimg = GetPopulation(img.Id);
+            for (var i = 0; i < 8; i++) {
+                if (!_imgList.TryGetValue(beam[i].Item1, out var nb) || nb == null) {
+                    throw new Exception("Neighbor image not found.");
+                }
 
-    public static void MoveFamily(int s, int d)
-    {
-        lock (_lock) {
-            foreach (var img in _imgList.Values) {
-                if (img.Family == s) {
-                    img.SetFamily(d);
+                if (nb.Id == img.Id) {
+                    continue;
+                }
+
+                if (img.Id > 0 && nb.Id == 0) {
+                    return (nb, img.Id);
+                }
+
+                if (img.Id == 0 && nb.Id > 0) {
+                    return (img, nb.Id);
+                }
+
+                var pnb = GetPopulation(nb.Id);
+                if (pimg - 1 >= pnb + 1) {
+                    return (img, nb.Id);
+                }
+
+                if (pnb - 1 >= pimg + 1) {
+                    return (nb, img.Id);
                 }
             }
+
+            return (img, img.Id);
         }
     }
-    */
 }
