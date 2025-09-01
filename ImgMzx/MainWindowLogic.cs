@@ -48,10 +48,8 @@ public sealed partial class MainWindow
 
         AppVars.Progress = new Progress<string>(message => Status.Text = message);
 
-        await Task.Run(() => { AppImgs.Load(AppConsts.FileDatabase, AppVars.Progress, out int maxImages, out int lcId, out int lvId); 
+        await Task.Run(() => { AppImgs.Load(AppConsts.FileDatabase, AppVars.Progress, out int maxImages); 
             AppVars.MaxImages = maxImages; 
-            AppVars.LcId = lcId;
-            AppVars.LvId = lvId;    
         }).ConfigureAwait(true);
         await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
 
@@ -310,36 +308,34 @@ public sealed partial class MainWindow
 
     private void FamilyAddClick()
     {
-        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
-        if (string.IsNullOrEmpty(imgX.Family) && !string.IsNullOrEmpty(imgY.Family)) {
-            imgX.SetFamily(imgY.Family);
+        if (imgX.Id > 0 && imgY.Id == 0) {
+            imgY.SetId(imgX.Id);
         }
-        else if (!string.IsNullOrEmpty(imgX.Family) && string.IsNullOrEmpty(imgY.Family)) {
-            imgY.SetFamily(imgX.Family);
+        else if (imgX.Id > 0 && imgY.Id > 0) {
+            var id = Math.Min(imgX.Id, imgY.Id);
+            imgX.SetId(id);
+            imgY.SetId(id);
         }
 
         DrawCanvas();
         EnableElements();
-        */
     }
 
     private void FamilyRemoveClick()
     {
-        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
-        if (imgX.Family != imgY.Family) {
-            imgX.SetFamily(0);
-            imgY.SetFamily(0);
+        if (imgX.Id != imgY.Id) {
+            imgX.SetId(0);
+            imgY.SetId(0);
         }
 
         DrawCanvas();
         EnableElements();
-        */
     }
 
     private void OnKeyDown(Key key)

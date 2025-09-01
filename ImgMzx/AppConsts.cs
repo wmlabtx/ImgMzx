@@ -39,6 +39,6 @@ public static class AppConsts
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
-    public const string AttributeLcId = "lcid";
-    public const string AttributeLvId = "lvid";
+
+    public const string TableIds = "ids";
 }

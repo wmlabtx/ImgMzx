@@ -47,6 +47,8 @@ namespace ImgMzx
                     continue;
                 }
 
+                AppImgs.UpdateLastViewId(imgX.Id);
+                AppImgs.UpdateLastViewId(imgY.Id);
                 break;
             }
             while (true);

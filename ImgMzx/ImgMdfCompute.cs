@@ -197,7 +197,7 @@ public static partial class ImgMdf
             }
         }
 
-        var img = AppImgs.GetForCheck();
+        var img = AppImgs.GetImgForCheck();
         Debug.Assert(img != null);
 
         var filename = AppFile.GetFileName(img.Name, AppConsts.PathHp);
@@ -281,6 +281,8 @@ public static partial class ImgMdf
             img.SetNext(imgY.Hash);
             img.SetScore(score);
         }
+
+        /*
         else {
             var nId = AppImgs.CheckCluster(img, beam);
             var oId = img.Id;
@@ -293,6 +295,7 @@ public static partial class ImgMdf
                 backgroundworker?.ReportProgress(0, message);
             }
         }
+        */
 
         img.UpdateLastCheck();
     }

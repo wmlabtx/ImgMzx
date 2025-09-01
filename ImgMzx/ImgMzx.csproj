@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <AnalysisLevel>none</AnalysisLevel>
+    <AnalysisLevel>latest-minimum</AnalysisLevel>
     <UseWindowsForms>True</UseWindowsForms>
     <StartupObject>ImgMzx.App</StartupObject>
     <EnableNETAnalyzers>False</EnableNETAnalyzers>

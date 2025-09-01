@@ -30,28 +30,6 @@
                 <Separator  />
             </MenuItem>
             <MenuItem Header="Family">
-                <MenuItem Header="Ph">
-                    <MenuItem Header="Ki">
-                        <MenuItem Header="Ka" Tag="pkk" Click="FamilySetClick" />
-                        <MenuItem Header="Sc" Tag="pks" Click="FamilySetClick" />
-                        <MenuItem Header="Nn" Tag="pkn" Click="FamilySetClick" />
-                        <MenuItem Header="Ha" Tag="pkh" Click="FamilySetClick" />
-                    </MenuItem>
-                    <MenuItem Header="Ad">
-                        <MenuItem Header="Ka" Tag="pak" Click="FamilySetClick" />
-                        <MenuItem Header="Sc" Tag="pas" Click="FamilySetClick" />
-                        <MenuItem Header="Nn" Tag="pan" Click="FamilySetClick" />
-                        <MenuItem Header="Ha" Tag="pah" Click="FamilySetClick" />
-                    </MenuItem>
-                </MenuItem>
-                <MenuItem Header="Dr">
-                    <MenuItem Header="Ar" Tag="da" Click="FamilySetClick" />
-                    <MenuItem Header="Ai" Tag="di" Click="FamilySetClick" />
-                    <MenuItem Header="Cg" Tag="dg" Click="FamilySetClick" />
-                    <MenuItem Header="He" Tag="dh" Click="FamilySetClick" />
-                    <MenuItem Header="Co" Tag="dc" Click="FamilySetClick" />
-                </MenuItem>
-                <Separator />
                 <MenuItem Header="Add (A)" Click="FamilyAddClick" />
                 <MenuItem Header="Remove (D)" Click="FamilyRemoveClick" />
             </MenuItem>

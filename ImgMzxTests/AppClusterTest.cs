@@ -15,13 +15,13 @@ public class AppClusterTest
         if (!AppImgs.IsLoaded()) {
             try {
                 var progress = new Progress<string>(p => Debug.WriteLine($"Loading database: {p}"));
-                AppImgs.Load(AppConsts.FileDatabase, progress, out int maxImages, out int lcId, out int lvId);
+                AppImgs.Load(AppConsts.FileDatabase, progress, out int maxImages);
 
                 _databaseLoaded = true;
                 Debug.WriteLine($"Database loaded successfully with {AppImgs.Count()} images");
             }
             catch (Exception ex) {
-                Debug.WriteLine($"Failed to load database or create GNG tables: {ex.Message}");
+                Debug.WriteLine($"Failed to load database: {ex.Message}");
                 _databaseLoaded = false;
             }
         }

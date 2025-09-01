@@ -20,22 +20,23 @@ public static class AppImgs
     private static SqliteConnection _sqlConnection = new();
     private static SortedList<string, Img> _imgList = new(); // hash/img
     private static SortedList<string, string> _nameList = new(); // name/hash
+    private static SortedList<int, DateTime> _idList = new(); // id/lastview
 
     public static string Status { get; private set; } = string.Empty;
 
-    public static void Load(string filedatabase, IProgress<string>? progress, out int maxImages, out int lcId, out int lvId)
+    public static void Load(string filedatabase, IProgress<string>? progress, out int maxImages)
     {
         AppDatabase.Load(
             filedatabase,
             progress,
             out SortedList<string, Img> imgList,
             out SortedList<string, string> nameList,
-            out maxImages,
-            out lcId,
-            out lvId);
+            out SortedList<int, DateTime> idList,
+            out maxImages);
         lock (_lock) {
             _imgList = imgList;
             _nameList = nameList;
+            _idList = idList;
         }
     }
 
@@ -150,61 +151,45 @@ public static class AppImgs
         }
     }
 
-    public static Img GetForCheck()
+    public static SortedList<string, Img> GetShadow()
     {
-
         lock (_lock) {
-            foreach (var e in _imgList.Values) {
-                if (e.Hash.Equals(e.Next) || !_imgList.ContainsKey(e.Next)) {
-                    return e;
-                }
-            }
-
-            var imgX = _imgList.Values.MinBy(e => e.LastCheck);
-            return imgX!;
+            return new SortedList<string, Img>(_imgList);
         }
     }
 
-    public static Img GetForView()
+    public static Img GetImgForCheck()
     {
-        lock (_lock) {
-            var ids = new SortedSet<int>();
-            foreach (var img in _imgList.Values) {
-                if (img.Id > 0) {
-                    ids.Add(img.Id);
-                }
+        var shadow = GetShadow();
+        foreach (var e in shadow.Values) {
+            if (e.Hash.Equals(e.Next) || !shadow.ContainsKey(e.Next)) {
+                return e;
             }
+        }
 
-            var lvId = AppVars.LvId;
-            if (!ids.Contains(lvId)) {
-                lvId = 0;
-                var array = ids.ToArray();
-                for (var i = 0; i < array.Length; i++) {
-                    if (array[i] > AppVars.LvId) {
-                        lvId = array[i];
-                        break;
-                    }
-                }
+        var imgX = shadow.Values.MinBy(e => e.LastCheck);
+        return imgX!;
+    }
 
-                if (lvId == 0 && array.Length > 0) {
-                    lvId = array[0];
-                }
+    public static Img GetImgForView()
+    {
+        var ids = GetIdsForView();
+        if (ids == null || ids.Length == 0) {
+            throw new Exception("No ids available for view.");
+        }
+
+        var shadow = GetShadow();
+        for (var i = 0; i < ids.Length; i++) {
+            var id = ids[i];
+            var scope = shadow.Values.Where(e => e.Id == id).ToArray();
+            if (scope.Length == 0) {
+                continue;
             }
-
-            AppVars.LvId = lvId;
-            var scope = _imgList.Values.Where(e => e.Id == AppVars.LvId).ToArray();
-            foreach (var img in _imgList.Values) {
-                if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
-                    continue;
-                }
-            }
-
-            AppDatabase.UpdateLvId();
 
             Img? imgX = null;
             var maxAge = 0.0;
             foreach (var img in scope) {
-                if (img.Hash.Equals(img.Next) || !_imgList.ContainsKey(img.Next)) {
+                if (img.Hash.Equals(img.Next) || !shadow.ContainsKey(img.Next)) {
                     continue;
                 }
 
@@ -222,11 +207,14 @@ public static class AppImgs
 
             return imgX!;
         }
+
+        var imgF = shadow.Values.MinBy(e => e.LastView);
+        return imgF!;
     }
 
     public static Img GetX(IProgress<string>? progress)
     {
-        var imgX = GetForView();
+        var imgX = GetImgForView();
         return imgX;
     }
 
@@ -360,15 +348,18 @@ public static class AppImgs
         imgFirst!.SetId(1);
         clusters.Add(imgFirst);
         imgList.Remove(imgFirst);
+        UpdateLastViewId(1);
 
         imgSecond.SetId(2);
         clusters.Add(imgSecond);
         imgList.Remove(imgSecond);
+        UpdateLastViewId(2);
 
-        for (var i = 3; i <= 999; i++) {
+        for (var i = 3; i <= 1000; i++) {
             var tmp = new List<Img>(imgList);
             var scope = new List<Img>();
-            for (var j = 0; j < 1000; j++) {
+            var size = Math.Min(tmp.Count, 1000000 / i);
+            for (var j = 0; j < size; j++) {
                 var r = Random.Shared.Next(tmp.Count);
                 scope.Add(tmp[r]);
                 tmp.RemoveAt(r);
@@ -406,6 +397,7 @@ public static class AppImgs
             clusters.Add(imgCore);
             imgList.Remove(imgCore);
             Debug.WriteLine($"Cluster #{i}: {imgCore.Name} {maxValue:F4}");
+            UpdateLastViewId(i);
         }
     }
 
@@ -476,6 +468,25 @@ public static class AppImgs
 
             nId  = Math.Min(nId, img.Id);
             return nId;
+        }
+    }
+
+    public static void UpdateLastViewId(int id)
+    {
+        if (id == 0) {
+            return;
+        }
+
+        lock (_lock) {
+            _idList[id] = DateTime.Now;
+            AppDatabase.UpdateLastViewId(id, _idList[id]);
+        }
+    }
+
+    public static int[] GetIdsForView()
+    {
+        lock (_lock) {
+            return _idList.OrderBy(e => e.Value).Select(e => e.Key).ToArray();
         }
     }
 }

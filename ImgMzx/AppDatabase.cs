@@ -19,9 +19,8 @@ public static class AppDatabase
         IProgress<string>? progress, 
         out SortedList<string, Img> imgList, 
         out SortedList<string, string> nameList,
-        out int maxImages,
-        out int lcId,
-        out int lvId)
+        out SortedList<int, DateTime> idList,
+        out int maxImages)
     {       
         lock (_lock) {
             var connectionString = $"Data Source={filedatabase};";
@@ -29,7 +28,8 @@ public static class AppDatabase
             _sqlConnection.Open();
 
             LoadImages(progress, out imgList, out nameList);
-            LoadVars(progress, out maxImages, out lcId, out lvId);
+            LoadIds(progress, out idList);
+            LoadVars(progress, out maxImages);
         }
     }
 
@@ -96,29 +96,52 @@ public static class AppDatabase
         }
     }
 
+    private static void LoadIds(
+        IProgress<string>? progress,
+        out SortedList<int, DateTime> idList)
+    {
+        idList = new SortedList<int, DateTime>();
+        var sb = new StringBuilder();
+        sb.Append("SELECT ");
+        sb.Append($"{AppConsts.AttributeId},"); // 0
+        sb.Append($"{AppConsts.AttributeLastView}"); // 1
+        sb.Append($" FROM {AppConsts.TableIds};");
+        using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
+        using var reader = sqlCommand.ExecuteReader();
+        if (reader.HasRows) {
+            var dtn = DateTime.Now;
+            while (reader.Read()) {
+                var id = (int)reader.GetInt64(0);
+                var lastview = DateTime.FromBinary(reader.GetInt64(1));
+
+                idList.Add(id, lastview);
+
+                if (!(DateTime.Now.Subtract(dtn).TotalMilliseconds > AppConsts.TimeLapse)) {
+                    continue;
+                }
+
+                dtn = DateTime.Now;
+                var count = idList.Count;
+                progress?.Report($"Loading ids ({count}){AppConsts.CharEllipsis}");
+            }
+        }
+    }
+
     private static void LoadVars(
         IProgress<string>? progress, 
-        out int maxImages,
-        out int lcId,
-        out int lvId)
+        out int maxImages)
     {
         maxImages = 0;
-        lcId = 999;
-        lvId = 999;
         progress?.Report($"Loading vars{AppConsts.CharEllipsis}");
         var sb = new StringBuilder();
         sb.Append("SELECT ");
-        sb.Append($"{AppConsts.AttributeMaxImages},"); // 0
-        sb.Append($"{AppConsts.AttributeLcId},"); // 1
-        sb.Append($"{AppConsts.AttributeLvId}"); // 2
+        sb.Append($"{AppConsts.AttributeMaxImages}"); // 0
         sb.Append($" FROM {AppConsts.TableVars};");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
         using var reader = sqlCommand.ExecuteReader();
         if (reader.HasRows) {
             while (reader.Read()) {
                 maxImages = reader.GetInt32(0);
-                lcId = reader.GetInt32(1);
-                lvId = reader.GetInt32(2);
                 break;
             }
         }
@@ -208,36 +231,24 @@ public static class AppDatabase
         }
     }
 
-    public static void UpdateLcId()
+    public static void UpdateLastViewId(int id, DateTime lastview)
     {
-        AppVars.LcId++;
-        if (AppVars.LcId > 999) {
-            AppVars.LcId = 1;
-        }
-
         lock (_lock) {
             using var sqlCommand = _sqlConnection.CreateCommand();
             sqlCommand.Connection = _sqlConnection;
-            sqlCommand.CommandText =
-                $"UPDATE {AppConsts.TableVars} SET {AppConsts.AttributeLcId} = @{AppConsts.AttributeLcId}";
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLcId}", AppVars.LcId);
-            sqlCommand.ExecuteNonQuery();
-        }
-    }
-
-    public static void UpdateLvId()
-    {
-        AppVars.LvId++;
-        if (AppVars.LvId > 999) {
-            AppVars.LvId = 1;
-        }
-
-        lock (_lock) {
-            using var sqlCommand = _sqlConnection.CreateCommand();
-            sqlCommand.Connection = _sqlConnection;
-            sqlCommand.CommandText =
-                $"UPDATE {AppConsts.TableVars} SET {AppConsts.AttributeLvId} = @{AppConsts.AttributeLvId}";
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLvId}", AppVars.LvId);
+            var sb = new StringBuilder();
+            sb.Append($"INSERT INTO {AppConsts.TableIds} (");
+            sb.Append($"{AppConsts.AttributeId},");
+            sb.Append($"{AppConsts.AttributeLastView}");
+            sb.Append(") VALUES (");
+            sb.Append($"@{AppConsts.AttributeId},");
+            sb.Append($"@{AppConsts.AttributeLastView}");
+            sb.Append(')');
+            sb.Append($" ON CONFLICT({AppConsts.AttributeId})");
+            sb.Append($" DO UPDATE SET {AppConsts.AttributeLastView} = excluded.{AppConsts.AttributeLastView};");
+            sqlCommand.CommandText = sb.ToString();
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeId}", id);
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastView}", lastview.Ticks);
             sqlCommand.ExecuteNonQuery();
         }
     }

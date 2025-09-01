@@ -152,6 +152,14 @@ public static class AppPanels
             imgX.SetScore(score);
             next = beam[0].Item1;
             imgX.SetNext(next);
+
+            AppImgs.UpdateLastViewId(imgX.Id);
+            if (imgY.Id == 0) {
+                var id = AppImgs.GetAvailableId();
+                imgY.SetId(id);
+            }
+
+            AppImgs.UpdateLastViewId(imgY.Id);
         }
     }
 
