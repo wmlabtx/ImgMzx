@@ -19,7 +19,6 @@ public static class AppDatabase
         IProgress<string>? progress, 
         out SortedList<string, Img> imgList, 
         out SortedList<string, string> nameList,
-        out SortedList<int, DateTime> idList,
         out int maxImages)
     {       
         lock (_lock) {
@@ -28,7 +27,6 @@ public static class AppDatabase
             _sqlConnection.Open();
 
             LoadImages(progress, out imgList, out nameList);
-            LoadIds(progress, out idList);
             LoadVars(progress, out maxImages);
         }
     }
@@ -51,7 +49,7 @@ public static class AppDatabase
         sb.Append($"{AppConsts.AttributeNext},"); // 6
         sb.Append($"{AppConsts.AttributeScore},"); // 7
         sb.Append($"{AppConsts.AttributeLastCheck},"); // 8
-        sb.Append($"{AppConsts.AttributeId}"); // 9
+        sb.Append($"{AppConsts.AttributeDistance}"); // 9
         sb.Append($" FROM {AppConsts.TableImages};");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
         using var reader = sqlCommand.ExecuteReader();
@@ -67,7 +65,7 @@ public static class AppDatabase
                 var next = reader.GetString(6);
                 var score = (int)reader.GetInt64(7);
                 var lastcheck = DateTime.FromBinary(reader.GetInt64(8));
-                var id = (int)reader.GetInt64(9);
+                var distance = reader.GetFloat(9);
 
                 var img = new Img(
                     hash: hash,
@@ -79,7 +77,7 @@ public static class AppDatabase
                     score: score,
                     lastcheck: lastcheck,
                     next: next,
-                    id: id
+                    distance: distance
                 );
 
                 imgList.Add(img.Hash, img);
@@ -92,37 +90,6 @@ public static class AppDatabase
                 dtn = DateTime.Now;
                 var count = imgList.Count;
                 progress?.Report($"Loading images ({count}){AppConsts.CharEllipsis}");
-            }
-        }
-    }
-
-    private static void LoadIds(
-        IProgress<string>? progress,
-        out SortedList<int, DateTime> idList)
-    {
-        idList = new SortedList<int, DateTime>();
-        var sb = new StringBuilder();
-        sb.Append("SELECT ");
-        sb.Append($"{AppConsts.AttributeId},"); // 0
-        sb.Append($"{AppConsts.AttributeLastView}"); // 1
-        sb.Append($" FROM {AppConsts.TableIds};");
-        using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
-        using var reader = sqlCommand.ExecuteReader();
-        if (reader.HasRows) {
-            var dtn = DateTime.Now;
-            while (reader.Read()) {
-                var id = (int)reader.GetInt64(0);
-                var lastview = DateTime.FromBinary(reader.GetInt64(1));
-
-                idList.Add(id, lastview);
-
-                if (!(DateTime.Now.Subtract(dtn).TotalMilliseconds > AppConsts.TimeLapse)) {
-                    continue;
-                }
-
-                dtn = DateTime.Now;
-                var count = idList.Count;
-                progress?.Report($"Loading ids ({count}){AppConsts.CharEllipsis}");
             }
         }
     }
@@ -163,7 +130,7 @@ public static class AppDatabase
                 sb.Append($"{AppConsts.AttributeNext},");
                 sb.Append($"{AppConsts.AttributeScore},");
                 sb.Append($"{AppConsts.AttributeLastCheck},");
-                sb.Append($"{AppConsts.AttributeId}");
+                sb.Append($"{AppConsts.AttributeDistance}");
                 sb.Append(") VALUES (");
                 sb.Append($"@{AppConsts.AttributeHash},");
                 sb.Append($"@{AppConsts.AttributeName},");
@@ -174,7 +141,7 @@ public static class AppDatabase
                 sb.Append($"@{AppConsts.AttributeNext},");
                 sb.Append($"@{AppConsts.AttributeScore},");
                 sb.Append($"@{AppConsts.AttributeLastCheck},");
-                sb.Append($"@{AppConsts.AttributeId}");
+                sb.Append($"@{AppConsts.AttributeDistance}");
                 sb.Append(')');
                 sqlCommand.CommandText = sb.ToString();
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
@@ -186,7 +153,7 @@ public static class AppDatabase
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeNext}", img.Next);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeScore}", img.Score);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.GetRawLastCheck());
-                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeId}", img.Id);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
                 sqlCommand.ExecuteNonQuery();
             }
         }
@@ -227,28 +194,6 @@ public static class AppDatabase
             sqlCommand.CommandText =
                 $"UPDATE {AppConsts.TableVars} SET {AppConsts.AttributeMaxImages} = @{AppConsts.AttributeMaxImages}";
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeMaxImages}", AppVars.MaxImages);
-            sqlCommand.ExecuteNonQuery();
-        }
-    }
-
-    public static void UpdateLastViewId(int id, DateTime lastview)
-    {
-        lock (_lock) {
-            using var sqlCommand = _sqlConnection.CreateCommand();
-            sqlCommand.Connection = _sqlConnection;
-            var sb = new StringBuilder();
-            sb.Append($"INSERT INTO {AppConsts.TableIds} (");
-            sb.Append($"{AppConsts.AttributeId},");
-            sb.Append($"{AppConsts.AttributeLastView}");
-            sb.Append(") VALUES (");
-            sb.Append($"@{AppConsts.AttributeId},");
-            sb.Append($"@{AppConsts.AttributeLastView}");
-            sb.Append(')');
-            sb.Append($" ON CONFLICT({AppConsts.AttributeId})");
-            sb.Append($" DO UPDATE SET {AppConsts.AttributeLastView} = excluded.{AppConsts.AttributeLastView};");
-            sqlCommand.CommandText = sb.ToString();
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeId}", id);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastView}", lastview.Ticks);
             sqlCommand.ExecuteNonQuery();
         }
     }

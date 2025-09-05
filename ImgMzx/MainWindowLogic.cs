@@ -163,11 +163,6 @@ public sealed partial class MainWindow
                 sb.Append($" +{panels[index]!.Img.Score}");
             }
 
-            if (panels[index]!.Img.Id > 0) {
-                var pop = AppImgs.GetPopulation(panels[index]!.Img.Id);
-                sb.Append($" #{panels[index]!.Img.Id:D5}[{pop}]");
-            }
-
             sb.AppendLine();
 
             sb.Append($"{Helper.SizeToString(panels[index]!.Size)} ");
@@ -308,6 +303,7 @@ public sealed partial class MainWindow
 
     private void FamilyAddClick()
     {
+        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
@@ -322,10 +318,12 @@ public sealed partial class MainWindow
 
         DrawCanvas();
         EnableElements();
+        */
     }
 
     private void FamilyRemoveClick()
     {
+        /*
         DisableElements();
         var imgX = AppPanels.GetImgPanel(0)!.Img;
         var imgY = AppPanels.GetImgPanel(1)!.Img;
@@ -336,6 +334,7 @@ public sealed partial class MainWindow
 
         DrawCanvas();
         EnableElements();
+        */
     }
 
     private void OnKeyDown(Key key)

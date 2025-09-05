@@ -18,7 +18,7 @@ public class Img
     public bool Verified { get; private set; }
     public int Score { get; private set; }
     public string Next { get; private set; }
-    public int Id { get; private set; }
+    public float Distance { get; private set; }
 
     private float[] _vector;
 
@@ -32,7 +32,7 @@ public class Img
         int score,
         DateTime lastcheck,
         string next,
-        int id
+        float distance
         )
     {
         Hash = hash;
@@ -43,7 +43,7 @@ public class Img
         Score = score;
         LastCheck = lastcheck;
         Next = next;
-        Id = id;
+        Distance = distance;
 
         _vector = vector;
     }
@@ -109,9 +109,9 @@ public class Img
         Next = next;
         AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeNext, next);
     }
-    public void SetId(int id)
+    public void SetDistance(float distance)
     {
-        Id = id;
-        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeId, id);
+        Distance = distance;
+        AppDatabase.ImgUpdateProperty(Hash, AppConsts.AttributeDistance, distance);
     }
 }

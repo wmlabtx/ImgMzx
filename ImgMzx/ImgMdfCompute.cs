@@ -131,7 +131,7 @@ public static partial class ImgMdf
             score: 0,
             lastcheck: new DateTime(1980, 1, 1),
             next: string.Empty,
-            id: 0
+            distance: 2f
         );
 
         AppImgs.Add(imgnew);
@@ -231,7 +231,7 @@ public static partial class ImgMdf
                     score: img.Score,
                     lastcheck: img.LastCheck,
                     next: string.Empty,
-                    id: img.Id
+                    distance: 2f
                 );
 
                 AppImgs.Delete(img.Hash);
@@ -272,30 +272,14 @@ public static partial class ImgMdf
             throw new Exception("Failed to get image by hash.");
         }
 
-        if (!img.Next.Equals(imgY.Hash) || score != img.Score) {
+        if (!img.Next.Equals(imgY.Hash) || score != img.Score || Math.Abs(img.Distance - beam[score].Item2) >= 0.0001f) {
             var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
-            var old = img.Next.Length > 4? img.Next.Substring(0, 4) : img.Next;
-            var upd = imgY.Hash.Length > 4? imgY.Hash.Substring(0, 4) : imgY.Hash;
-            var message = $" [{lastcheck} ago] {img.Name}: {old}[{img.Score}] {AppConsts.CharRightArrow} {upd}[{score}]";
+            var message = $" [{lastcheck} ago] {img.Name}: {img.Distance:F4}[{img.Score}] {AppConsts.CharRightArrow} {beam[score].Item2:F4}[{score}]";
             backgroundworker?.ReportProgress(0, message);
             img.SetNext(imgY.Hash);
+            img.SetDistance(beam[score].Item2);
             img.SetScore(score);
         }
-
-        /*
-        else {
-            var nId = AppImgs.CheckCluster(img, beam);
-            var oId = img.Id;
-            if (oId != nId) {
-                var oP = AppImgs.GetPopulation(oId);
-                img.SetId(nId);
-                var nP = AppImgs.GetPopulation(nId);
-                var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
-                var message = $" [{lastcheck} ago] {img.Name}: {oId:D5} [{oP}] {AppConsts.CharRightArrow} {nId:D5} [{nP}]";
-                backgroundworker?.ReportProgress(0, message);
-            }
-        }
-        */
 
         img.UpdateLastCheck();
     }

@@ -136,6 +136,7 @@ public static class AppPanels
 
             var score = 0;
             var next = beam[0].Item1;
+            var distance = beam[0].Item2;
             for (score = 0; score < beam.Count; score++) {
                 if (beam[score].Item1.Equals(imgX.Next)) {
                     if (imgX.Score == score) {
@@ -143,6 +144,8 @@ public static class AppPanels
                         imgX.SetScore(score);
                         next = beam[score].Item1;
                         imgX.SetNext(next);
+                        distance = beam[score].Item2;
+                        imgX.SetDistance(distance);
                         return;
                     }
                 }
@@ -152,14 +155,8 @@ public static class AppPanels
             imgX.SetScore(score);
             next = beam[0].Item1;
             imgX.SetNext(next);
-
-            AppImgs.UpdateLastViewId(imgX.Id);
-            if (imgY.Id == 0) {
-                var id = AppImgs.GetAvailableId();
-                imgY.SetId(id);
-            }
-
-            AppImgs.UpdateLastViewId(imgY.Id);
+            distance = beam[0].Item2;
+            imgX.SetDistance(distance);
         }
     }
 
