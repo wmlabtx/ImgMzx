@@ -20,7 +20,7 @@ public static class AppImgs
     private static SqliteConnection _sqlConnection = new();
     private static SortedList<string, Img> _imgList = new(); // hash/img
     private static SortedList<string, string> _nameList = new(); // name/hash
-    private static List<string> _nexts = new();
+    private static HashSet<(string, string)> _pairList = new(); // hash/hash
 
     public static string Status { get; private set; } = string.Empty;
 
@@ -31,6 +31,7 @@ public static class AppImgs
             progress,
             out SortedList<string, Img> imgList,
             out SortedList<string, string> nameList,
+            out HashSet<(string, string)> pairList,
             out maxImages);
         lock (_lock) {
             _imgList = imgList;
@@ -106,6 +107,7 @@ public static class AppImgs
                     if (img != null) {
                         _nameList.Remove(img.Name);
                         AppDatabase.Delete(key);
+                        DeletePair(key);
                     }
                 }
             }
@@ -114,6 +116,7 @@ public static class AppImgs
                     if (img != null) {
                         _imgList.Remove(img.Hash);
                         AppDatabase.Delete(img.Hash);
+                        DeletePair(img.Hash);
                     }
 
                     _nameList.Remove(key);
@@ -172,83 +175,21 @@ public static class AppImgs
     public static Img GetImgForView()
     {
         Img? imgX = null;
+ 
+        var list = new List<Img>();
         lock (_lock) {
-            while (_nexts.Count > 0) {
-                var hash = _nexts[0];
-                _nexts.RemoveAt(0);
-                if (_imgList.TryGetValue(hash, out imgX)) {
-                    return imgX;
+            foreach (var e in _imgList.Values) {
+                if (e.Next.Equals(e.Hash) || !_imgList.ContainsKey(e.Next)) {
+                    continue;
                 }
+
+                list.Add(e);
             }
         }
 
-        var shadow = GetShadow();
-        var maxAge = 0.0;
-        foreach (var img in shadow.Values) {
-            if (img.Hash.Equals(img.Next) || !shadow.ContainsKey(img.Next)) {
-                continue;
-            }
-
-            var age = DateTime.Now.Subtract(img.LastView).TotalDays;
-            age += Random.Shared.NextDouble() * 365.0;
-            if (imgX == null || img.Score < imgX.Score) {
-                maxAge = age;
-                imgX = img;
-            }
-            else if (img.Score == imgX.Score && age > maxAge) {
-                maxAge = age;
-                imgX = img;
-            }
-        }
-
-        var beam = GetBeam(imgX!);
-        lock (_lock) {
-            _nexts.AddRange(beam.Take(1000).Select(e => e.Item1));
-        }
-
+        var r = Random.Shared.Next(0, Math.Min(100000, list.Count));
+        imgX = list.OrderByDescending(e => e.LastView).ElementAt(r);
         return imgX!;
-
-        /*
-        var shadow = GetShadow();
-        Img? imgX = null;
-        foreach (var img in shadow.Values) {
-            if (img.Hash.Equals(img.Next) || !shadow.ContainsKey(img.Next)) {
-                continue;
-            }
-
-            else if (imgX == null || img.Distance < imgX.Distance) {
-                imgX = img;
-            }
-        }
-        
-
-        return imgX!;
-        */
-
-        /*
-        var shadow = GetShadow();
-        Img? imgX = null;
-        var maxAge = 0.0;
-        foreach (var img in shadow.Values) {
-            if (img.Hash.Equals(img.Next) || !shadow.ContainsKey(img.Next)) {
-                continue;
-            }
-
-            var age = DateTime.Now.Subtract(img.LastView).TotalDays;
-            age += Random.Shared.NextDouble() * 365.0;
-            if (imgX == null || img.Score < imgX.Score) {
-                maxAge = age;
-                imgX = img;
-            }
-            else if (img.Score == imgX.Score && age > maxAge) {
-                maxAge = age;
-                imgX = img;
-            }
-        }
-        
-
-        return imgX!;
-        */
     }
 
     public static Img GetX(IProgress<string>? progress)
@@ -316,31 +257,48 @@ public static class AppImgs
         }
     }
 
-    public static List<Img> GetImagesOrderedByLastView(int count)
-    {
-        lock (_lock) {
-            return _imgList.Values
-                .OrderBy(img => img.LastView)
-                .Take(count)
-                .ToList();
-        }
-    }
-
-    public static List<Img> GetImagesOrderedByScore(int count, bool ascending = true)
-    {
-        lock (_lock) {
-            var query = ascending
-                ? _imgList.Values.OrderBy(img => img.Score)
-                : _imgList.Values.OrderByDescending(img => img.Score);
-
-            return query.Take(count).ToList();
-        }
-    }
-
     public static bool IsLoaded()
     {
         lock (_lock) {
             return _imgList.Count > 0;
+        }
+    }
+
+    private static void NormalizePair(ref string a, ref string b)
+    {
+        if (string.CompareOrdinal(a, b) > 0) (a, b) = (b, a);
+    }
+
+    public static void AddPair(string id1, string id2)
+    {
+        NormalizePair(ref id1, ref id2);
+        lock (_lock) {
+            if (_pairList.Add((id1, id2))) {
+                AppDatabase.AddPair(id1, id2);
+            }
+        }
+    }
+
+    public static void DeletePair(string id)
+    { 
+        lock (_lock) {
+            if (_pairList.RemoveWhere(p => p.Item1.Equals(id) || p.Item2.Equals(id)) > 0) {
+                AppDatabase.DeletePair(id);
+            }
+        }
+    }
+
+    public static IEnumerable<string> GetPairs(string id)
+    {
+        lock (_lock) {
+            foreach (var (a, b) in _pairList) {
+                if (a == id) {
+                    yield return b;
+                }
+                else if (b == id) {
+                    yield return a;
+                }
+            }
         }
     }
 }

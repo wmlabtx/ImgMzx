@@ -53,13 +53,6 @@ public sealed partial class MainWindow
         }).ConfigureAwait(true);
         await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
 
-        /*
-        if (AppImgs.TryGetByName("580b77", out var img1) && AppImgs.TryGetByName("86f22e", out var img2)) {
-            var filename0 = ImgMdf.Export(img1!.Hash);
-            var filename1 = ImgMdf.Export(img2!.Hash);
-        }
-        */
-
         DrawCanvas();
 
         AppVars.SuspendEvent = new ManualResetEvent(true);
@@ -160,7 +153,12 @@ public sealed partial class MainWindow
             sb.Append($"{panels[index]!.Img.Name}.{panels[index]!.Extension}");
 
             if (panels[index]!.Img.Score > 0) {
-                sb.Append($" +{panels[index]!.Img.Score}");
+                sb.Append($" *{panels[index]!.Img.Score}");
+            }
+
+            var hs = AppImgs.GetPairs(panels[index]!.Img.Hash);
+            if (hs.Count() > 0) {
+                sb.Append($" [{hs.Count()}]");
             }
 
             sb.AppendLine();

@@ -252,33 +252,30 @@ public static partial class ImgMdf
             throw new Exception("No images found for beam.");
         }
 
-        var score = 0;
-        for (score = 0; score < beam.Count; score++) {
-            if (beam[score].Item1.Equals(img.Next)) {
+        var hs = AppImgs.GetPairs(img.Hash);
+        Img? imgY = null;
+        var index = 0;
+        for (index = 0; index < beam.Count; index++) {
+            if (!hs.Contains(beam[index].Item1)) {
+                var hashY = beam[index].Item1;
+                if (!AppImgs.TryGet(hashY, out imgY)) {
+                    continue;
+                }
+
                 break;
             }
         }
 
-        if (score >= beam.Count || score != img.Score) {
-            score = 0;
-        }
-
-        var hashY = beam[score].Item1;
-        if (!AppImgs.TryGet(hashY, out var imgY)) {
-            throw new Exception("Failed to get image by hash.");
-        }
-
         if (imgY == null) {
-            throw new Exception("Failed to get image by hash.");
+            throw new Exception();
         }
 
-        if (!img.Next.Equals(imgY.Hash) || score != img.Score || Math.Abs(img.Distance - beam[score].Item2) >= 0.0001f) {
+        if (!img.Next.Equals(imgY.Hash) || Math.Abs(img.Distance - beam[index].Item2) >= 0.0001f) {
             var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
-            var message = $" [{lastcheck} ago] {img.Name}: {img.Distance:F4}[{img.Score}] {AppConsts.CharRightArrow} {beam[score].Item2:F4}[{score}]";
+            var message = $" [{lastcheck} ago] {img.Name}: {img.Distance:F4} {AppConsts.CharRightArrow} {beam[index].Item2:F4}";
             backgroundworker?.ReportProgress(0, message);
             img.SetNext(imgY.Hash);
-            img.SetDistance(beam[score].Item2);
-            img.SetScore(score);
+            img.SetDistance(beam[index].Item2);
         }
 
         img.UpdateLastCheck();

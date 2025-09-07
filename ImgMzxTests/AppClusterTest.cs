@@ -6,6 +6,7 @@ namespace ImgMzxTests;
 [TestClass]
 public class AppClusterTest
 {
+    /*
     private static bool _databaseLoaded = false;
 
     [ClassInitialize]
@@ -42,6 +43,7 @@ public class AppClusterTest
         var progress = new Progress<string>(p => Debug.WriteLine(""));
         AppImgs.InitClusters(progress);
     }
+    */
 
     /*
     [TestMethod]

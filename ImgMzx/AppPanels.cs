@@ -125,38 +125,17 @@ public static class AppPanels
         if (AppImgs.TryGet(hashX, out var imgX) && AppImgs.TryGet(hashY, out var imgY)) {
             Debug.Assert(imgX != null);
             Debug.Assert(imgY != null);
-            
+
+            imgX.SetScore(imgX.Score + 1);
+            imgY.SetScore(imgY.Score + 1);
+
+            AppImgs.AddPair(hashX, hashY);
+
             imgX.UpdateLastView();
             imgY.UpdateLastView();
 
-            var beam = AppImgs.GetBeam(imgX);
-            if (beam.Count == 0) {
-                throw new Exception("No images found for beam.");
-            }
-
-            var score = 0;
-            var next = beam[0].Item1;
-            var distance = beam[0].Item2;
-            for (score = 0; score < beam.Count; score++) {
-                if (beam[score].Item1.Equals(imgX.Next)) {
-                    if (imgX.Score == score) {
-                        score++;
-                        imgX.SetScore(score);
-                        next = beam[score].Item1;
-                        imgX.SetNext(next);
-                        distance = beam[score].Item2;
-                        imgX.SetDistance(distance);
-                        return;
-                    }
-                }
-            }
-
-            score = 0;
-            imgX.SetScore(score);
-            next = beam[0].Item1;
-            imgX.SetNext(next);
-            distance = beam[0].Item2;
-            imgX.SetDistance(distance);
+            imgX.SetNext(string.Empty);
+            imgY.SetNext(string.Empty);
         }
     }
 
@@ -165,6 +144,12 @@ public static class AppPanels
         var hashX = _imgPanels[0]!.Img.Hash;
         var hashY = _imgPanels[1]!.Img.Hash;
         ImgMdf.Delete(hashX);
+        if (AppImgs.TryGet(hashY, out var imgY)) {
+            Debug.Assert(imgY != null);
+            imgY.SetScore(imgY.Score + 1);
+            imgY.UpdateLastView();
+            imgY.SetNext(string.Empty);
+        }
     }
 
     public static void DeleteRight(IProgress<string>? progress)
@@ -174,7 +159,9 @@ public static class AppPanels
         ImgMdf.Delete(hashY);
         if (AppImgs.TryGet(hashX, out var imgX)) {
             Debug.Assert(imgX != null);
+            imgX.SetScore(imgX.Score + 1);
             imgX.UpdateLastView();
+            imgX.SetNext(string.Empty);
         }
     }
 

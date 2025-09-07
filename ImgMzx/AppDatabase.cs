@@ -19,6 +19,7 @@ public static class AppDatabase
         IProgress<string>? progress, 
         out SortedList<string, Img> imgList, 
         out SortedList<string, string> nameList,
+        out HashSet<(string, string)> pairList,
         out int maxImages)
     {       
         lock (_lock) {
@@ -28,6 +29,7 @@ public static class AppDatabase
 
             LoadImages(progress, out imgList, out nameList);
             LoadVars(progress, out maxImages);
+            LoadPairs(progress, out pairList);
         }
     }
 
@@ -114,6 +116,37 @@ public static class AppDatabase
         }
     }
 
+    private static void LoadPairs(
+        IProgress<string>? progress,
+        out HashSet<(string, string)> pairList)
+    {
+        pairList = new HashSet<(string, string)>();
+        var sb = new StringBuilder();
+        sb.Append("SELECT ");
+        sb.Append($"{AppConsts.AttributeHash1},"); // 0
+        sb.Append($"{AppConsts.AttributeHash2}"); // 1
+        sb.Append($" FROM {AppConsts.TablePairs};");
+        using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
+        using var reader = sqlCommand.ExecuteReader();
+        if (reader.HasRows) {
+            var dtn = DateTime.Now;
+            while (reader.Read()) {
+                var hash1 = reader.GetString(0);
+                var hash2 = reader.GetString(1);
+
+                pairList.Add((hash1, hash2));
+
+                if (!(DateTime.Now.Subtract(dtn).TotalMilliseconds > AppConsts.TimeLapse)) {
+                    continue;
+                }
+
+                dtn = DateTime.Now;
+                var count = pairList.Count;
+                progress?.Report($"Loading pairs ({count}){AppConsts.CharEllipsis}");
+            }
+        }
+    }
+
     public static void Add(Img img)
     {
         lock (_lock) {
@@ -159,6 +192,27 @@ public static class AppDatabase
         }
     }
 
+    public static void AddPair(string hash1, string hash2)
+    {
+        lock (_lock) {
+            using (var sqlCommand = _sqlConnection.CreateCommand()) {
+                sqlCommand.Connection = _sqlConnection;
+                var sb = new StringBuilder();
+                sb.Append($"INSERT INTO {AppConsts.TablePairs} (");
+                sb.Append($"{AppConsts.AttributeHash1},");
+                sb.Append($"{AppConsts.AttributeHash2}");
+                sb.Append(") VALUES (");
+                sb.Append($"@{AppConsts.AttributeHash1},");
+                sb.Append($"@{AppConsts.AttributeHash2}");
+                sb.Append(')');
+                sqlCommand.CommandText = sb.ToString();
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash1}", hash1);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash2}", hash2);
+                sqlCommand.ExecuteNonQuery();
+            }
+        }
+    }
+
     public static void Delete(string hash)
     {
         lock (_lock) {
@@ -166,6 +220,19 @@ public static class AppDatabase
             sqlCommand.Connection = _sqlConnection;
             sqlCommand.CommandText =
                 $"DELETE FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}";
+            sqlCommand.Parameters.Clear();
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
+            sqlCommand.ExecuteNonQuery();
+        }
+    }
+
+    public static void DeletePair(string hash)
+    {
+        lock (_lock) {
+            using var sqlCommand = _sqlConnection.CreateCommand();
+            sqlCommand.Connection = _sqlConnection;
+            sqlCommand.CommandText =
+                $"DELETE FROM {AppConsts.TablePairs} WHERE {AppConsts.AttributeHash1} = @{AppConsts.AttributeHash} OR {AppConsts.AttributeHash2} = @{AppConsts.AttributeHash}";
             sqlCommand.Parameters.Clear();
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
             sqlCommand.ExecuteNonQuery();

@@ -16,7 +16,6 @@ public static class AppConsts
     public const int MaxImportFiles = 100;
     public const int VectorSize = 1024;
     public const int HashLength = 64;
-    public const float MaxSim = 0.48f;
 
     public const char CharEllipsis = '\u2026';
     public const char CharRightArrow = '\u2192';
@@ -39,4 +38,8 @@ public static class AppConsts
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
+
+    public const string TablePairs = "pairs";
+    public const string AttributeHash1 = "hash1";
+    public const string AttributeHash2 = "hash2";
 }
