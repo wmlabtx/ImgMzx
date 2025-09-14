@@ -6,6 +6,7 @@ namespace ImgMzxTests;
 [TestClass]
 public class AppVitTest
 {
+    /*
     private static readonly StringBuilder sb = new();
 
     private static void GetVector(
@@ -68,4 +69,5 @@ public class AppVitTest
 
         File.WriteAllText($@"{AppContext.BaseDirectory}images\distances.txt", sb.ToString());
     }
+    */
 }

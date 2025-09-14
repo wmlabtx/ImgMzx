@@ -4,7 +4,10 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Reflection;
+using System.Security.Policy;
 using System.Text;
+using System.Windows.Documents;
+using System.Windows.Forms;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace ImgMzx;
@@ -17,10 +20,10 @@ public static partial class ImgMdf
 
     private static bool ImportFile(string orgfilename, DateTime lastview, BackgroundWorker backgroundworker)
     {
-        var orgname = Path.GetFileNameWithoutExtension(orgfilename).ToLowerInvariant();
-        if (AppImgs.TryGetByName(orgname, out var imgE)) {
-            Debug.Assert(imgE != null);
-            var filenameF = AppFile.GetFileName(imgE.Name, AppConsts.PathHp);
+        var orgname = Path.GetFileNameWithoutExtension(orgfilename);
+        var hash = orgname.ToUpperInvariant();
+        if (AppDatabase.ContainsKey(hash)) {
+            var filenameF = AppFile.GetFileName(orgname, AppConsts.PathHp);
             if (orgfilename.Equals(filenameF)) {
                 // existing file
                 return true;
@@ -41,7 +44,6 @@ public static partial class ImgMdf
 
         var imagedata = AppFile.ReadFile(orgfilename);
         Debug.Assert(imagedata != null);
-        string hash;
         if (string.IsNullOrEmpty(orgext) || orgext.Equals(AppConsts.MzxExtension, StringComparison.OrdinalIgnoreCase)) {
             var decrypteddata = AppEncryption.Decrypt(imagedata, orgname);
             if (decrypteddata == null) {
@@ -51,9 +53,8 @@ public static partial class ImgMdf
             }
 
             hash = AppHash.GetHash(decrypteddata);
-            if (AppImgs.TryGet(hash, out var imgF)) {
-                Debug.Assert(imgF != null);
-                var filenameF = AppFile.GetFileName(imgF.Name, AppConsts.PathHp);
+            if (AppDatabase.ContainsKey(hash)) {
+                var filenameF = AppFile.GetFileName(hash, AppConsts.PathHp);
                 if (File.Exists(filenameF)) {
                     // we have a file
                     var imagedataF = AppFile.ReadEncryptedFile(filenameF);
@@ -61,9 +62,12 @@ public static partial class ImgMdf
                     var foundhash = AppHash.GetHash(imagedataF);
                     if (hash.Equals(foundhash)) {
                         // ...and file is okay
-                        // delete incoming file
-                        File.Delete(orgfilename);
-                        _found++;
+                        if (!orgfilename.Equals(filenameF)) {
+                            // delete incoming file
+                            File.Delete(orgfilename);
+                            _found++;
+                        }
+
                         return true;
                     }
                 }
@@ -80,9 +84,8 @@ public static partial class ImgMdf
         }
         else {
             hash = AppHash.GetHash(imagedata);
-            if (AppImgs.TryGet(hash, out var imgF)) {
-                Debug.Assert(imgF != null);
-                var filenameF = AppFile.GetFileName(imgF.Name, AppConsts.PathHp);
+            if (AppDatabase.ContainsKey(hash)) {
+                var filenameF = AppFile.GetFileName(hash, AppConsts.PathHp);
                 if (File.Exists(filenameF)) {
                     // we have a file
                     var imagedataF = AppFile.ReadEncryptedFile(filenameF);
@@ -94,8 +97,9 @@ public static partial class ImgMdf
                         File.SetAttributes(orgfilename, FileAttributes.Normal);
                         File.Delete(orgfilename);
                         _found++;
-                        return true;
                     }
+
+                    return true;
                 }
 
                 // ...but found file is missing or changed
@@ -104,7 +108,7 @@ public static partial class ImgMdf
             }
         }
 
-        using var image = AppBitmap.GetImage(imagedata);
+        using var image = AppBitmap.GetImage(imagedata, RotateMode.None, FlipMode.None);
         if (image == null) {
             DeleteFile(orgfilename);
             _bad++;
@@ -112,31 +116,28 @@ public static partial class ImgMdf
         }
 
         var vector = AppVit.GetVector(image);
-        var name = AppImgs.GetName(hash);
-        var newfilename = AppFile.GetFileName(name, AppConsts.PathHp);
+        var newfilename = AppFile.GetFileName(hash, AppConsts.PathHp);
+
         if (!orgfilename.Equals(newfilename)) {
             AppFile.WriteEncryptedFile(newfilename, imagedata);
             File.SetLastWriteTime(newfilename, lastmodified);
             File.SetAttributes(orgfilename, FileAttributes.Normal);
             File.Delete(orgfilename);
         }
-        
-        var imgnew = new Img(
-            hash: hash,
-            name: name,
-            vector: vector,
-            rotatemode: RotateMode.None,
-            flipmode: FlipMode.None,
-            lastview: lastview,
-            score: 0,
-            lastcheck: new DateTime(1980, 1, 1),
-            next: string.Empty,
-            distance: 2f
-        );
 
-        AppImgs.Add(imgnew);
-        AppDatabase.Add(imgnew);
+        var imgnew = new Img {
+            RotateMode = RotateMode.None,
+            FlipMode = FlipMode.None,
+            LastView = lastview,
+            Score = 0,
+            LastCheck = new DateTime(1980, 1, 1),
+            Next = string.Empty,
+            Distance = 2f
+        };
+
+        AppDatabase.Add(hash, imgnew, vector);
         _added++;
+        (var nextNew, var message) = AppDatabase.GetNext(hash);
         return true;
     }
 
@@ -171,7 +172,7 @@ public static partial class ImgMdf
         if (AppVars.ImportRequested) {
             AppVars.MaxImages = AppVars.MaxImages - 100;
             AppDatabase.UpdateMaxImages();
-            var lastview = AppImgs.GetMinimalLastView();
+            var lastview = AppDatabase.GetMinimalLastView();
             _added = 0;
             _found = 0;
             _bad = 0;
@@ -197,14 +198,15 @@ public static partial class ImgMdf
             }
         }
 
+        /*
         var img = AppImgs.GetImgForCheck();
         Debug.Assert(img != null);
 
-        var filename = AppFile.GetFileName(img.Name, AppConsts.PathHp);
+        var filename = AppFile.GetFileName(img.Hash, AppConsts.PathHp);
         Debug.Assert(filename != null);
         var imagedata = AppFile.ReadEncryptedFile(filename);
         if (imagedata == null) {
-            backgroundworker.ReportProgress(0, $"{img.Name}: imagedata = null");
+            backgroundworker.ReportProgress(0, $"{img.Hash.Substring(0, 4)}: imagedata = null");
             Delete(img.Hash);
             return;
         }
@@ -214,7 +216,7 @@ public static partial class ImgMdf
             //backgroundworker.ReportProgress(0, $"{img.Name}: fixing...");
             using var image = AppBitmap.GetImage(imagedata);
             if (image == null) {
-                backgroundworker.ReportProgress(0, $"{img.Name}: image == null");
+                backgroundworker.ReportProgress(0, $"{img.Hash.Substring(0, 4)}: image == null");
                 Delete(img.Hash);
                 return;
             }
@@ -223,7 +225,6 @@ public static partial class ImgMdf
             if (!hash.Equals(img.Hash)) {
                 var imgnew = new Img(
                     hash: hash,
-                    name: img.Name,
                     vector: vector,
                     rotatemode: img.RotateMode,
                     flipmode: img.FlipMode,
@@ -272,12 +273,13 @@ public static partial class ImgMdf
 
         if (!img.Next.Equals(imgY.Hash) || Math.Abs(img.Distance - beam[index].Item2) >= 0.0001f) {
             var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
-            var message = $" [{lastcheck} ago] {img.Name}: {img.Distance:F4} {AppConsts.CharRightArrow} {beam[index].Item2:F4}";
+            var message = $" [{lastcheck} ago] {img.Hash.Substring(0, 4)}: {img.Distance:F4} {AppConsts.CharRightArrow} {beam[index].Item2:F4}";
             backgroundworker?.ReportProgress(0, message);
             img.SetNext(imgY.Hash);
             img.SetDistance(beam[index].Item2);
         }
 
         img.UpdateLastCheck();
+        */
     }
 }

@@ -54,6 +54,13 @@ public static class AppFile
 
     public static string GetFileName(string name, string hp)
     {
+        name = name.ToLowerInvariant();
+        return $"{hp}\\{name[0]}\\{name[1]}\\{name}";
+    }
+
+    public static string GetFileNameOld(string name, string hp)
+    {
+        name = name.ToLowerInvariant();
         return $"{hp}\\{name[0]}\\{name[1]}\\{name}";
     }
 

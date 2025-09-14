@@ -11,37 +11,34 @@ namespace ImgMzx
         {
             Img? imgX = null;
             do {
-                var totalcount = AppImgs.Count();
+                var totalcount = AppDatabase.Count();
                 if (totalcount < 2) {
                     progress?.Report($"totalcount = {totalcount}");
                     return;
                 }
 
-                if (!string.IsNullOrEmpty(hashX) && !AppImgs.TryGet(hashX, out imgX)) {
-                    //hashX = null;
-                    imgX = null;
+                if (hashX != null) {
+                    imgX = AppDatabase.GetImg(hashX);
                 }
 
                 if (imgX == null) {
-                    imgX = AppImgs.GetX(progress);
-                    if (imgX == null) {
+                    hashX = AppDatabase.GetX(progress);
+                    if (hashX == null) {
                         progress?.Report($"totalcount = {totalcount}");
                         return;
                     }
                 }
                 
-                Debug.Assert(imgX != null);
-                if (!AppPanels.SetLeftPanel(imgX.Hash, progress)) {
-                    Delete(imgX.Hash);
+                if (!AppPanels.SetLeftPanel(hashX!, progress)) {
+                    Delete(hashX!);
                     hashX = null;
                     imgX = null;
                     continue;
                 }
 
-                var imgY = AppImgs.GetY(imgX, progress);
-                Debug.Assert(imgY != null);
-                if (!AppPanels.SetRightPanel(imgY!.Hash, progress)) {
-                    Delete(imgY!.Hash);
+                var hashY = AppDatabase.GetY(hashX!, progress);
+                if (!AppPanels.SetRightPanel(hashY!, progress)) {
+                    Delete(hashY);
                     hashX = null;
                     imgX = null;
                     continue;
@@ -54,13 +51,7 @@ namespace ImgMzx
 
         public static void Rotate(string hash, RotateMode rotatemode, FlipMode flipmode)
         {
-            if (!AppImgs.TryGet(hash, out var img)) {
-                return;
-            }
-
-            Debug.Assert(img != null);
-
-            var filename = AppFile.GetFileName(img.Name, AppConsts.PathHp);
+            var filename = AppFile.GetFileName(hash, AppConsts.PathHp);
             var imagedata = AppFile.ReadEncryptedFile(filename);
             if (imagedata == null) {
                 return;
@@ -72,20 +63,16 @@ namespace ImgMzx
             }
 
             var rvector = AppVit.GetVector(image);
-            img.SetVector(rvector);
-            img.SetRotateMode(rotatemode);
-            img.SetFlipMode(flipmode);
+            AppDatabase.ImgUpdateProperty(hash, AppConsts.AttributeVector, Helper.ArrayFromFloat(rvector));
+            AppDatabase.ImgUpdateProperty(hash, AppConsts.AttributeRotateMode, (int)rotatemode);
+            AppDatabase.ImgUpdateProperty(hash, AppConsts.AttributeFlipMode, (int)flipmode);
         }
 
         public static void Delete(string hashD)
         {
-            if (AppImgs.TryGet(hashD, out var imgX)) {
-                Debug.Assert(imgX != null);
-                var filename = AppFile.GetFileName(imgX.Name, AppConsts.PathHp);
-                DeleteEncryptedFile(filename);
-            }
-
-            AppImgs.Delete(hashD);
+            var filename = AppFile.GetFileName(hashD, AppConsts.PathHp);
+            DeleteEncryptedFile(filename);
+            AppDatabase.Delete(hashD);
         }
 
         private static void DeleteFile(string filename)
@@ -127,12 +114,7 @@ namespace ImgMzx
 
         public static string Export(string hashE)
         {
-            if (!AppImgs.TryGet(hashE, out var imgX)) {
-                return "ERROR";
-            }
-
-            Debug.Assert(imgX != null);
-            var filename = AppFile.GetFileName(imgX.Name, AppConsts.PathHp);
+            var filename = AppFile.GetFileName(hashE, AppConsts.PathHp);
             var name = Path.GetFileNameWithoutExtension(filename).ToLower();
             var array = AppFile.ReadEncryptedFile(filename);
             if (array != null) {

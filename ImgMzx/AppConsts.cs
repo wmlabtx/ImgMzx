@@ -26,7 +26,6 @@ public static class AppConsts
 
     public const string TableImages = "images";
     public const string AttributeHash = "hash";
-    public const string AttributeName = "name";
     public const string AttributeVector = "vector";
     public const string AttributeRotateMode = "rotatemode";
     public const string AttributeFlipMode = "flipmode";

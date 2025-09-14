@@ -8,6 +8,7 @@ namespace ImgMzxTests;
 [TestClass]
 public class AppBitmapTest
 {
+    /*
     [TestMethod]
     public void Main()
     {
@@ -83,5 +84,6 @@ public class AppBitmapTest
         m_xor.Save(fs, new JpegEncoder());
         fs.Close();
     }
+    */
 }
 

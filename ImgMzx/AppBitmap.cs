@@ -28,6 +28,7 @@ namespace ImgMzx
             return ext;
         }
 
+        /*
         public static Image<Rgb24>? GetImage(byte[] data)
         {
             try {
@@ -41,6 +42,7 @@ namespace ImgMzx
 
             return null;
         }
+        */
 
         public static Image<Rgb24>? GetImage(byte[] data, RotateMode rotatemode, FlipMode flipmode)
         {

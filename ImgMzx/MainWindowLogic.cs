@@ -48,7 +48,7 @@ public sealed partial class MainWindow
 
         AppVars.Progress = new Progress<string>(message => Status.Text = message);
 
-        await Task.Run(() => { AppImgs.Load(AppConsts.FileDatabase, AppVars.Progress, out int maxImages); 
+        await Task.Run(() => { AppDatabase.Load(AppConsts.FileDatabase, AppVars.Progress, out int maxImages); 
             AppVars.MaxImages = maxImages; 
         }).ConfigureAwait(true);
         await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
@@ -106,7 +106,7 @@ public sealed partial class MainWindow
     {
         DisableElements();
         await Task.Run(() => { AppPanels.Confirm(AppVars.Progress); }).ConfigureAwait(true);
-        var hashX = AppPanels.GetImgPanel(0)!.Img.Hash;
+        var hashX = AppPanels.GetImgPanel(0)!.Value.Hash;
         await Task.Run(() => { ImgMdf.Find(hashX, AppVars.Progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
@@ -148,37 +148,37 @@ public sealed partial class MainWindow
         var pLabels = new[] { LabelLeft, LabelRight };
 
         for (var index = 0; index < 2; index++) {
-            pBoxes[index].Source = AppBitmap.GetImageSource(panels[index]!.Image);
+            pBoxes[index].Source = AppBitmap.GetImageSource(panels[index]!.Value.Image);
             var sb = new StringBuilder();
-            sb.Append($"{panels[index]!.Img.Name}.{panels[index]!.Extension}");
+            sb.Append($"{panels[index]!.Value.Hash.Substring(0, 4)}.{panels[index]!.Value.Extension}");
 
-            if (panels[index]!.Img.Score > 0) {
-                sb.Append($" *{panels[index]!.Img.Score}");
+            if (panels[index]!.Value.Img.Score > 0) {
+                sb.Append($" *{panels[index]!.Value.Img.Score}");
             }
 
-            var hs = AppImgs.GetPairs(panels[index]!.Img.Hash);
-            if (hs.Count() > 0) {
-                sb.Append($" [{hs.Count()}]");
+            var history = AppDatabase.GetHistory(panels[index]!.Value.Hash);
+            if (history.Count() > 0) {
+                sb.Append($" [{history.Count()}]");
             }
 
             sb.AppendLine();
 
-            sb.Append($"{Helper.SizeToString(panels[index]!.Size)} ");
-            sb.Append($" ({panels[index]!.Image.Width}x{panels[index]!.Image.Height})");
+            sb.Append($"{Helper.SizeToString(panels[index]!.Value.Size)} ");
+            sb.Append($" ({panels[index]!.Value.Image.Width}x{panels[index]!.Value.Image.Height})");
             sb.AppendLine();
 
-            sb.Append($" {Helper.TimeIntervalToString(DateTime.Now.Subtract(panels[index]!.Img.LastView))} ago ");
-            var dateTime = panels[index]!.Taken;
+            sb.Append($" {Helper.TimeIntervalToString(DateTime.Now.Subtract(panels[index]!.Value.Img.LastView))} ago ");
+            var dateTime = panels[index]!.Value.Taken;
             if (dateTime != null) {
                 sb.Append($" [{dateTime.Value.ToShortDateString()}]");
             }
 
-            var meta = AppBitmap.GetMeta(panels[index]!.Image);
+            var meta = AppBitmap.GetMeta(panels[index]!.Value.Image);
             sb.Append($" {meta}");
 
             pLabels[index].Text = sb.ToString();
             pLabels[index].Background = System.Windows.Media.Brushes.White;
-            if (panels[index]!.Img.Score == 0) {
+            if (panels[index]!.Value.Img.Score == 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
             }
         }
@@ -192,8 +192,8 @@ public sealed partial class MainWindow
         var hs = new double[2];
         for (var index = 0; index < 2; index++) {
             var panel = AppPanels.GetImgPanel(index);
-            ws[index] = panel!.Image.Width;
-            hs[index] = panel.Image.Height;
+            ws[index] = panel!.Value.Image.Width;
+            hs[index] = panel.Value.Image.Height;
         }
 
         var aW = _picsMaxWidth / (ws[0] + ws[1]);
@@ -242,9 +242,10 @@ public sealed partial class MainWindow
     private async void RotateClick(RotateMode rotatemode)
     {
         DisableElements();
-        var img = AppPanels.GetImgPanel(0)!.Img;
-        await Task.Run(() => { ImgMdf.Rotate(img.Hash, rotatemode, img.FlipMode); }).ConfigureAwait(true);
-        await Task.Run(() => { ImgMdf.Find(img.Hash, AppVars.Progress); }).ConfigureAwait(true);
+        var hash = AppPanels.GetImgPanel(0)!.Value.Hash;
+        var img = AppPanels.GetImgPanel(0)!.Value.Img;
+        await Task.Run(() => { ImgMdf.Rotate(hash, rotatemode, img.FlipMode); }).ConfigureAwait(true);
+        await Task.Run(() => { ImgMdf.Find(hash, AppVars.Progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }
@@ -252,9 +253,10 @@ public sealed partial class MainWindow
     private async void FlipClick(FlipMode flipmode)
     {
         DisableElements();
-        var img = AppPanels.GetImgPanel(0)!.Img;
-        await Task.Run(() => { ImgMdf.Rotate(img.Hash, img.RotateMode, flipmode); }).ConfigureAwait(true);
-        await Task.Run(() => { ImgMdf.Find(img.Hash, AppVars.Progress); }).ConfigureAwait(true);
+        var hash = AppPanels.GetImgPanel(0)!.Value.Hash;
+        var img = AppPanels.GetImgPanel(0)!.Value.Img;
+        await Task.Run(() => { ImgMdf.Rotate(hash, img.RotateMode, flipmode); }).ConfigureAwait(true);
+        await Task.Run(() => { ImgMdf.Find(hash, AppVars.Progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }

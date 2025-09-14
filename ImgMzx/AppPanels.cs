@@ -28,12 +28,11 @@ public static class AppPanels
         image = null;
         extension = "xxx";
         taken = null;
-        if (!AppImgs.TryGet(hash, out img)) {
+        if (!AppDatabase.ContainsKey(hash)) {
             return false;
         }
 
-        Debug.Assert(img != null);
-        var filename = AppFile.GetFileName(img.Name, AppConsts.PathHp);
+        var filename = AppFile.GetFileName(hash, AppConsts.PathHp);
         Debug.Assert(filename != null);
         imagedata = AppFile.ReadEncryptedFile(filename);
         if (imagedata == null) {
@@ -41,7 +40,12 @@ public static class AppPanels
         }
 
         extension = AppBitmap.GetExtension(imagedata);
-        image = AppBitmap.GetImage(imagedata, img.RotateMode, img.FlipMode);
+        img = AppDatabase.GetImg(hash);
+        if (img == null) {
+            return false;
+        }
+
+        image = AppBitmap.GetImage(imagedata, img.Value.RotateMode, img.Value.FlipMode);
         if (image == null) {
             return false;
         }
@@ -52,11 +56,11 @@ public static class AppPanels
 
     public static bool SetLeftPanel(string hash, IProgress<string>? progress)
     {
-        progress?.Report($"Rendering left{AppConsts.CharEllipsis}");
+        //progress?.Report($"Rendering left{AppConsts.CharEllipsis}");
 
         if (!SetPanel(hash,
                 out var imagedata,
-                out var img, 
+                out var img,
                 out var image,
                 out var extension,
                 out var taken)) {
@@ -67,12 +71,14 @@ public static class AppPanels
         Debug.Assert(img != null);
         Debug.Assert(image != null);
 
-        var imgpanel = new ImgPanel(
-            img: img,
-            size: imagedata.LongLength,
-            image: image,
-            extension: extension,
-            taken: taken);
+        var imgpanel = new ImgPanel {
+            Hash = hash,
+            Img = img.Value,
+            Size = imagedata.LongLength,
+            Image = image,
+            Extension = extension,
+            Taken = taken
+        };
         _imgPanels[0] = imgpanel;
 
         return true;
@@ -80,7 +86,7 @@ public static class AppPanels
 
     public static bool SetRightPanel(string hash, IProgress<string>? progress)
     {
-        progress?.Report($"Rendering right{AppConsts.CharEllipsis}");
+        //progress?.Report($"Rendering right{AppConsts.CharEllipsis}");
 
         if (!SetPanel(hash,
                 out var imagedata,
@@ -96,85 +102,74 @@ public static class AppPanels
         Debug.Assert(image != null);
 
         if (AppVars.ShowXOR) {
-            AppBitmap.Composite(_imgPanels[0]!.Image, image, out var imagexor);
+            AppBitmap.Composite(_imgPanels[0]!.Value.Image, image, out var imagexor);
             image.Dispose();
             image = imagexor;
         }
 
-        var imgpanel = new ImgPanel(
-            img: img,
-            size: imagedata.LongLength,
-            image: image,
-            extension: extension,
-            taken: taken);
+        var imgpanel = new ImgPanel {
+            Hash = hash,
+            Img = img.Value,
+            Size = imagedata.LongLength,
+            Image = image,
+            Extension = extension,
+            Taken = taken
+        };
 
         _imgPanels[1] = imgpanel;
-        UpdateStatus(progress);
+
         return true;
     }
 
     public static bool UpdateRightPanel(IProgress<string>? progress)
     {
-        return SetRightPanel(_imgPanels[1]!.Img.Hash, progress);
+        return SetRightPanel(_imgPanels[1]!.Value.Hash, progress);
     }
 
     public static void Confirm(IProgress<string>? progress)
     {
-        var hashX = _imgPanels[0]!.Img.Hash;
-        var hashY = _imgPanels[1]!.Img.Hash;
-        if (AppImgs.TryGet(hashX, out var imgX) && AppImgs.TryGet(hashY, out var imgY)) {
-            Debug.Assert(imgX != null);
-            Debug.Assert(imgY != null);
+        var hashX = _imgPanels[0]!.Value.Hash;
+        var imgX = AppDatabase.GetImg(hashX);
+        var hashY = _imgPanels[1]!.Value.Hash;
+        var imgY = AppDatabase.GetImg(hashY);
+        if (imgX != null && imgY != null) {
+            AppDatabase.ImgUpdateProperty(hashX, AppConsts.AttributeScore, imgX.Value.Score + 1);
+            AppDatabase.ImgUpdateProperty(hashY, AppConsts.AttributeScore, imgY.Value.Score + 1);
+            AppDatabase.ImgUpdateProperty(hashX, AppConsts.AttributeLastView, DateTime.Now.Ticks);
+            AppDatabase.ImgUpdateProperty(hashY, AppConsts.AttributeLastView, DateTime.Now.Ticks);
+            AppDatabase.AddPair(hashX, hashY);
 
-            imgX.SetScore(imgX.Score + 1);
-            imgY.SetScore(imgY.Score + 1);
-
-            AppImgs.AddPair(hashX, hashY);
-
-            imgX.UpdateLastView();
-            imgY.UpdateLastView();
-
-            imgX.SetNext(string.Empty);
-            imgY.SetNext(string.Empty);
+            progress?.Report($"Calculating{AppConsts.CharEllipsis}");
+            (var next, var message) = AppDatabase.GetNext(hashX);
+            progress?.Report(message);
+            (next, message) = AppDatabase.GetNext(hashY);
+            progress?.Report(message);
         }
     }
 
     public static void DeleteLeft(IProgress<string>? progress)
     {
-        var hashX = _imgPanels[0]!.Img.Hash;
-        var hashY = _imgPanels[1]!.Img.Hash;
-        ImgMdf.Delete(hashX);
-        if (AppImgs.TryGet(hashY, out var imgY)) {
-            Debug.Assert(imgY != null);
-            imgY.SetScore(imgY.Score + 1);
-            imgY.UpdateLastView();
-            imgY.SetNext(string.Empty);
-        }
+        progress?.Report($"Calculating{AppConsts.CharEllipsis}");
+        var hashX = _imgPanels[0]!.Value.Hash;
+        var hashY = _imgPanels[1]!.Value.Hash;
+        (var next, var message) = AppDatabase.GetNext(hashY, hashX);
+        progress?.Report(message);
     }
 
     public static void DeleteRight(IProgress<string>? progress)
     {
-        var hashX = _imgPanels[0]!.Img.Hash;
-        var hashY = _imgPanels[1]!.Img.Hash;
-        ImgMdf.Delete(hashY);
-        if (AppImgs.TryGet(hashX, out var imgX)) {
-            Debug.Assert(imgX != null);
-            imgX.SetScore(imgX.Score + 1);
-            imgX.UpdateLastView();
-            imgX.SetNext(string.Empty);
-        }
+        progress?.Report($"Calculating{AppConsts.CharEllipsis}");
+        var hashX = _imgPanels[0]!.Value.Hash;
+        var hashY = _imgPanels[1]!.Value.Hash;
+        (var next, var message) = AppDatabase.GetNext(hashX, hashY);
+        progress?.Report(message);
     }
 
     public static void Export(IProgress<string>? progress)
     {
         progress?.Report($"Exporting{AppConsts.CharEllipsis}");
-        var filename0 = ImgMdf.Export(_imgPanels[0]!.Img.Hash);
-        var filename1 = ImgMdf.Export(_imgPanels[1]!.Img.Hash);
+        var filename0 = ImgMdf.Export(_imgPanels[0]!.Value.Hash);
+        var filename1 = ImgMdf.Export(_imgPanels[1]!.Value.Hash);
         progress?.Report($"Exported to {filename0} and {filename1}");
-    }
-
-    private static void UpdateStatus(IProgress<string>? progress)
-    {
-        progress?.Report(AppImgs.Status);
     }
 }
