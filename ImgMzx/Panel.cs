@@ -3,7 +3,7 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace ImgMzx;
 
-public struct ImgPanel
+public struct Panel
 {
     public string Hash;
     public Img Img;

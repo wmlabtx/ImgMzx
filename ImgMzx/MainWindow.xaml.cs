@@ -114,7 +114,6 @@ namespace ImgMzx
 
         private void OnClosed(object sender, EventArgs e)
         {
-            ReleaseResources();
         }
     }
 }

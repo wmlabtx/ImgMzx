@@ -44,7 +44,7 @@ namespace ImgMzx
             return str;
         }
 
-        public static void CleanupDirectories(string startLocation, IProgress<string> progress)
+        public static void CleanupDirectories(string startLocation, IProgress<string>? progress)
         {
             foreach (var directory in Directory.GetDirectories(startLocation)) {
                 CleanupDirectories(directory, progress);
@@ -52,7 +52,7 @@ namespace ImgMzx
                     continue;
                 }
 
-                progress.Report($"{directory} deleting{AppConsts.CharEllipsis}");
+                progress?.Report($"{directory} deleting{AppConsts.CharEllipsis}");
                 try {
                     Directory.Delete(directory, false);
                 }

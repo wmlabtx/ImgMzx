@@ -1,9 +1,9 @@
-﻿using System.ComponentModel;
-using System.Text;
+﻿using System.Text;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Controls;
 using SixLabors.ImageSharp.Processing;
+using System.Runtime.Versioning;
 
 namespace ImgMzx;
 
@@ -13,9 +13,13 @@ public sealed partial class MainWindow
     private double _picsMaxHeight;
     private double _labelMaxHeight;
 
+    [SupportedOSPlatform("windows6.1")]
     private readonly NotifyIcon _notifyIcon = new();
-    private BackgroundWorker _backgroundWorker = new() { WorkerSupportsCancellation = true, WorkerReportsProgress = true };
+    private readonly Images _images = new(AppConsts.FileDatabase, AppConsts.FileVit);
+    
+    private Progress<string>? _progress;
 
+    [SupportedOSPlatform("windows6.1")]
     private async void WindowLoaded()
     {
         BoxLeft.MouseDown += PictureLeftBoxMouseClick;
@@ -35,6 +39,7 @@ public sealed partial class MainWindow
         _labelMaxHeight = LabelLeft.ActualHeight;
         _picsMaxHeight = Grid.ActualHeight - _labelMaxHeight;
 
+        
         _notifyIcon.Icon = new Icon(@"app.ico");
         _notifyIcon.Visible = false;
         _notifyIcon.DoubleClick +=
@@ -46,23 +51,15 @@ public sealed partial class MainWindow
                 RedrawCanvas();
             };
 
-        AppVars.Progress = new Progress<string>(message => Status.Text = message);
+        _progress = new Progress<string>(message => Status.Text = message);
 
-        await Task.Run(() => { AppDatabase.Load(AppConsts.FileDatabase, AppVars.Progress, out int maxImages); 
-            AppVars.MaxImages = maxImages; 
-        }).ConfigureAwait(true);
-        await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.LoadVectorsFromDatabase(_progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Find(null, _progress); }).ConfigureAwait(true);
 
         DrawCanvas();
-
-        AppVars.SuspendEvent = new ManualResetEvent(true);
-
-        _backgroundWorker = new BackgroundWorker { WorkerSupportsCancellation = true, WorkerReportsProgress = true };
-        _backgroundWorker.DoWork += DoCompute;
-        _backgroundWorker.ProgressChanged += DoComputeProgress;
-        _backgroundWorker.RunWorkerAsync();
     }
 
+    [SupportedOSPlatform("windows6.1")]
     private void OnStateChanged()
     {
         if (WindowState != WindowState.Minimized) {
@@ -73,9 +70,11 @@ public sealed partial class MainWindow
         _notifyIcon.Visible = true;
     }
 
-    private static void ImportClick()
+    private async void ImportClick()
     {
-        AppVars.ImportRequested = true;
+        DrawCanvas();
+        await Task.Run(() => { _images.Import(_progress); }).ConfigureAwait(true);
+        EnableElements();
     }
 
     private void ExportClick()
@@ -96,8 +95,8 @@ public sealed partial class MainWindow
     private async void ButtonLeftNextMouseClick()
     {
         DisableElements();
-        await Task.Run(() => { AppPanels.Confirm(AppVars.Progress); }).ConfigureAwait(true);
-        await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Confirm(_progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Find(null, _progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }
@@ -105,9 +104,9 @@ public sealed partial class MainWindow
     private async void ButtonRightNextMouseClick()
     {
         DisableElements();
-        await Task.Run(() => { AppPanels.Confirm(AppVars.Progress); }).ConfigureAwait(true);
-        var hashX = AppPanels.GetImgPanel(0)!.Value.Hash;
-        await Task.Run(() => { ImgMdf.Find(hashX, AppVars.Progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Confirm(_progress); }).ConfigureAwait(true);
+        var hashX = _images.GetPanel(0)!.Value.Hash;
+        await Task.Run(() => { _images.Find(hashX, _progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }
@@ -137,9 +136,9 @@ public sealed partial class MainWindow
 
     private void DrawCanvas()
     {
-        var panels = new ImgPanel?[2];
-        panels[0] = AppPanels.GetImgPanel(0);
-        panels[1] = AppPanels.GetImgPanel(1);
+        var panels = new Panel?[2];
+        panels[0] = _images.GetPanel(0);
+        panels[1] = _images.GetPanel(1);
         if (panels[0] == null || panels[1] == null) {
             return;
         }
@@ -150,15 +149,10 @@ public sealed partial class MainWindow
         for (var index = 0; index < 2; index++) {
             pBoxes[index].Source = AppBitmap.GetImageSource(panels[index]!.Value.Image);
             var sb = new StringBuilder();
-            sb.Append($"{panels[index]!.Value.Hash.Substring(0, 4)}.{panels[index]!.Value.Extension}");
+            sb.Append($"{panels[index]!.Value.Hash[..4]}.{panels[index]!.Value.Extension}");
 
             if (panels[index]!.Value.Img.Score > 0) {
                 sb.Append($" *{panels[index]!.Value.Img.Score}");
-            }
-
-            var history = AppDatabase.GetHistory(panels[index]!.Value.Hash);
-            if (history.Count() > 0) {
-                sb.Append($" [{history.Count()}]");
             }
 
             sb.AppendLine();
@@ -191,7 +185,7 @@ public sealed partial class MainWindow
         var ws = new double[2];
         var hs = new double[2];
         for (var index = 0; index < 2; index++) {
-            var panel = AppPanels.GetImgPanel(index);
+            var panel = _images.GetPanel(index);
             ws[index] = panel!.Value.Image.Width;
             hs[index] = panel.Value.Image.Height;
         }
@@ -217,15 +211,15 @@ public sealed partial class MainWindow
     private async void ImgPanelExport()
     {
         DisableElements();
-        await Task.Run(() => { AppPanels.Export(AppVars.Progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Export(_progress); }).ConfigureAwait(true);
         EnableElements();
     }
 
     private async void ImgPanelDeleteLeft()
     {
         DisableElements();
-        await Task.Run(() => { AppPanels.DeleteLeft(AppVars.Progress); }).ConfigureAwait(true);
-        await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.DeleteLeft(_progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Find(null, _progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }
@@ -233,8 +227,8 @@ public sealed partial class MainWindow
     private async void ImgPanelDeleteRight()
     {
         DisableElements();
-        await Task.Run(() => { AppPanels.DeleteRight(AppVars.Progress); }).ConfigureAwait(true);
-        await Task.Run(() => { ImgMdf.Find(null, AppVars.Progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.DeleteRight(_progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Find(null, _progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }
@@ -242,10 +236,10 @@ public sealed partial class MainWindow
     private async void RotateClick(RotateMode rotatemode)
     {
         DisableElements();
-        var hash = AppPanels.GetImgPanel(0)!.Value.Hash;
-        var img = AppPanels.GetImgPanel(0)!.Value.Img;
-        await Task.Run(() => { ImgMdf.Rotate(hash, rotatemode, img.FlipMode); }).ConfigureAwait(true);
-        await Task.Run(() => { ImgMdf.Find(hash, AppVars.Progress); }).ConfigureAwait(true);
+        var hash = _images.GetPanel(0)!.Value.Hash;
+        var img = _images.GetPanel(0)!.Value.Img;
+        await Task.Run(() => { _images.Rotate(hash, rotatemode, img.FlipMode); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Find(hash, _progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }
@@ -253,24 +247,16 @@ public sealed partial class MainWindow
     private async void FlipClick(FlipMode flipmode)
     {
         DisableElements();
-        var hash = AppPanels.GetImgPanel(0)!.Value.Hash;
-        var img = AppPanels.GetImgPanel(0)!.Value.Img;
-        await Task.Run(() => { ImgMdf.Rotate(hash, img.RotateMode, flipmode); }).ConfigureAwait(true);
-        await Task.Run(() => { ImgMdf.Find(hash, AppVars.Progress); }).ConfigureAwait(true);
+        var hash = _images.GetPanel(0)!.Value.Hash;
+        var img = _images.GetPanel(0)!.Value.Img;
+        await Task.Run(() => { _images.Rotate(hash, img.RotateMode, flipmode); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Find(hash, _progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }
 
-    private void ReleaseResources()
+    private static void CloseApp()
     {
-        _notifyIcon.Dispose();
-        _backgroundWorker.CancelAsync();
-        _backgroundWorker.Dispose();
-    }
-
-    private void CloseApp()
-    {
-        ReleaseResources();
         System.Windows.Application.Current.Shutdown();
     }
 
@@ -284,29 +270,29 @@ public sealed partial class MainWindow
     private void ToggleXorClick()
     {
         DisableElements();
-        AppVars.ShowXOR = !AppVars.ShowXOR;
-        AppPanels.UpdateRightPanel(AppVars.Progress);
+        _images.ShowXOR = !_images.ShowXOR;
+        _images.UpdateRightPanel();
         DrawCanvas();
         EnableElements();
     }
 
-    private void FamilySetClick(string family)
+    private static void FamilySetClick(string family)
     {
         /*
         DisableElements();
-        var imgX = AppPanels.GetImgPanel(0)!.Img;
+        var imgX = AppPanels.GetPanel(0)!.Img;
         imgX.SetFamily(family);
         DrawCanvas();
         EnableElements();
         */
     }
 
-    private void FamilyAddClick()
+    private static void FamilyAddClick()
     {
         /*
         DisableElements();
-        var imgX = AppPanels.GetImgPanel(0)!.Img;
-        var imgY = AppPanels.GetImgPanel(1)!.Img;
+        var imgX = AppPanels.GetPanel(0)!.Img;
+        var imgY = AppPanels.GetPanel(1)!.Img;
         if (imgX.Id > 0 && imgY.Id == 0) {
             imgY.SetId(imgX.Id);
         }
@@ -321,12 +307,12 @@ public sealed partial class MainWindow
         */
     }
 
-    private void FamilyRemoveClick()
+    private static void FamilyRemoveClick()
     {
         /*
         DisableElements();
-        var imgX = AppPanels.GetImgPanel(0)!.Img;
-        var imgY = AppPanels.GetImgPanel(1)!.Img;
+        var imgX = AppPanels.GetPanel(0)!.Img;
+        var imgY = AppPanels.GetPanel(1)!.Img;
         if (imgX.Id != imgY.Id) {
             imgX.SetId(0);
             imgY.SetId(0);
@@ -350,19 +336,5 @@ public sealed partial class MainWindow
                 FamilyRemoveClick();
                 break;
         }
-    }
-
-    private void DoComputeProgress(object? sender, ProgressChangedEventArgs e)
-    {
-        BackgroundStatus.Text = e.UserState != null ? (string)e.UserState : string.Empty;
-    }
-
-    private void DoCompute(object? sender, DoWorkEventArgs args)
-    {
-        while (!_backgroundWorker.CancellationPending) {
-            ImgMdf.BackgroundWorker(_backgroundWorker);
-        }
-
-        args.Cancel = true;
     }
 }

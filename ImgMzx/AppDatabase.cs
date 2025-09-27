@@ -3,11 +3,13 @@ using SixLabors.ImageSharp.Memory;
 using SixLabors.ImageSharp.Processing;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Security.Policy;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Markup;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
@@ -36,15 +38,13 @@ public static class AppDatabase
         }
     }
 
-    private static void LoadVars(
-        IProgress<string>? progress,
-        out int maxImages)
+    private static void LoadVars(IProgress<string>? progress, out int maxImages)
     {
         maxImages = 0;
         progress?.Report($"Loading vars{AppConsts.CharEllipsis}");
         var sb = new StringBuilder();
         sb.Append("SELECT ");
-        sb.Append($"{AppConsts.AttributeMaxImages}"); // 0
+        sb.Append($"{AppConsts.AttributeMaxImages}");
         sb.Append($" FROM {AppConsts.TableVars};");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
         using var reader = sqlCommand.ExecuteReader();
@@ -56,16 +56,13 @@ public static class AppDatabase
         }
     }
 
-    private static void LoadVectors(
-        IProgress<string>? progress,
-        int maxImages,
-        out Dictionary<string, float[]> vectors)
+    private static void LoadVectors(IProgress<string>? progress, int maxImages, out Dictionary<string, float[]> vectors)
     {
         vectors = new Dictionary<string, float[]>(maxImages, StringComparer.Ordinal);
         var sb = new StringBuilder();
         sb.Append("SELECT ");
-        sb.Append($"{AppConsts.AttributeHash},"); // 0
-        sb.Append($"{AppConsts.AttributeVector}"); // 1
+        sb.Append($"{AppConsts.AttributeHash},");
+        sb.Append($"{AppConsts.AttributeVector}");
         sb.Append($" FROM {AppConsts.TableImages};");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
         using var reader = sqlCommand.ExecuteReader();
@@ -74,8 +71,7 @@ public static class AppDatabase
             while (reader.Read()) {
                 var hash = reader.GetString(0);
                 var bytebuffer = (byte[])reader[1];
-                var vector = AppVars.PoolFloat.Rent(AppConsts.VectorSize);
-                Buffer.BlockCopy(bytebuffer, 0, vector, 0, AppConsts.VectorSize * sizeof(float));
+                var vector = Helper.ArrayToFloat(bytebuffer);
                 vectors[hash] = vector;
 
                 if (!(DateTime.Now.Subtract(dtn).TotalMilliseconds > AppConsts.TimeLapse)) {
@@ -99,7 +95,8 @@ public static class AppDatabase
         sb.Append($"{AppConsts.AttributeNext},"); // 3
         sb.Append($"{AppConsts.AttributeScore},"); // 4
         sb.Append($"{AppConsts.AttributeLastCheck},"); // 5
-        sb.Append($"{AppConsts.AttributeDistance}"); // 6
+        sb.Append($"{AppConsts.AttributeDistance},"); // 6
+        sb.Append($"{AppConsts.AttributeHash32}"); // 7
         sb.Append($" FROM {AppConsts.TableImages}");
         sb.Append($" WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
@@ -114,8 +111,10 @@ public static class AppDatabase
                 var score = (int)reader.GetInt64(4);
                 var lastcheck = DateTime.FromBinary(reader.GetInt64(5));
                 var distance = reader.GetFloat(6);
+                var hash32 = reader.IsDBNull(7) ? string.Empty : reader.GetString(7);
 
                 var img = new Img();
+                img.Hash = hash32;
                 img.RotateMode = rotatemode;
                 img.FlipMode = flipmode;
                 img.LastView = lastview;
@@ -131,7 +130,7 @@ public static class AppDatabase
         return null;
     }
 
-    public static void Add(string hash, Img img, float[] vector)
+    public static void Add(string hash, Img img, byte[] content, float[] vector)
     {
         lock (_lock) {
             using (var sqlCommand = _sqlConnection.CreateCommand()) {
@@ -146,7 +145,8 @@ public static class AppDatabase
                 sb.Append($"{AppConsts.AttributeNext},");
                 sb.Append($"{AppConsts.AttributeScore},");
                 sb.Append($"{AppConsts.AttributeLastCheck},");
-                sb.Append($"{AppConsts.AttributeDistance}");
+                sb.Append($"{AppConsts.AttributeDistance},");
+                sb.Append($"{AppConsts.AttributeContent}");
                 sb.Append(") VALUES (");
                 sb.Append($"@{AppConsts.AttributeHash},");
                 sb.Append($"@{AppConsts.AttributeVector},");
@@ -156,7 +156,8 @@ public static class AppDatabase
                 sb.Append($"@{AppConsts.AttributeNext},");
                 sb.Append($"@{AppConsts.AttributeScore},");
                 sb.Append($"@{AppConsts.AttributeLastCheck},");
-                sb.Append($"@{AppConsts.AttributeDistance}");
+                sb.Append($"@{AppConsts.AttributeDistance},");
+                sb.Append($"@{AppConsts.AttributeContent}");
                 sb.Append(')');
                 sqlCommand.CommandText = sb.ToString();
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
@@ -168,6 +169,7 @@ public static class AppDatabase
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeScore}", img.Score);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.LastCheck.Ticks);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeContent}", content);
                 sqlCommand.ExecuteNonQuery();
             }
 
@@ -178,9 +180,7 @@ public static class AppDatabase
     public static void Delete(string hash)
     {
         lock (_lock) {
-            if (_vectors.Remove(hash, out float[]? value)) {
-                AppVars.PoolFloat.Return(value);
-            }
+            _vectors.Remove(hash);
 
             using var sqlCommand = _sqlConnection.CreateCommand();
             sqlCommand.Connection = _sqlConnection;
@@ -192,31 +192,135 @@ public static class AppDatabase
         }
     }
 
-    public static void DeletePair(string hash)
+    public static void ImgUpdateProperty(string hash, string key, object val)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            throw new ArgumentException("Hash cannot be null or empty", nameof(hash));
+        }
+        
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentException("Key cannot be null or empty", nameof(key));
+        }
+
+        // Pre-validate column name to avoid SQL injection
+        var validColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
+        {
+            AppConsts.AttributeVector,
+            AppConsts.AttributeRotateMode,
+            AppConsts.AttributeFlipMode,
+            AppConsts.AttributeLastView,
+            AppConsts.AttributeNext,
+            AppConsts.AttributeScore,
+            AppConsts.AttributeLastCheck,
+            AppConsts.AttributeDistance,
+            AppConsts.AttributeContent,
+            AppConsts.AttributeHash32
+        };
+
+        if (!validColumns.Contains(key))
+        {
+            throw new ArgumentException($"Invalid column name: {key}", nameof(key));
+        }
+
+        lock (_lock) {
+            try {
+                using var sqlCommand = _sqlConnection.CreateCommand();
+                
+                // Simplified query without redundant Connection assignment
+                sqlCommand.CommandText = $"UPDATE {AppConsts.TableImages} SET {key} = @value WHERE {AppConsts.AttributeHash} = @hash";
+                
+                sqlCommand.Parameters.AddWithValue("@value", val ?? DBNull.Value);
+                sqlCommand.Parameters.AddWithValue("@hash", hash);
+                
+                var rowsAffected = sqlCommand.ExecuteNonQuery();
+                
+                if (rowsAffected == 0)
+                {
+                    throw new InvalidOperationException($"No record found with hash: {hash}");
+                }
+            }
+            catch (Exception ex) when (!(ex is ArgumentException || ex is InvalidOperationException))
+            {
+                throw new InvalidOperationException($"Failed to update property {key} for hash {hash}: {ex.Message}", ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Optimized method for updating LastCheck timestamp with minimal overhead
+    /// </summary>
+    public static void UpdateLastCheck(string hash)
     {
         lock (_lock) {
             using var sqlCommand = _sqlConnection.CreateCommand();
-            sqlCommand.Connection = _sqlConnection;
-            sqlCommand.CommandText =
-                $"DELETE FROM {AppConsts.TablePairs} WHERE {AppConsts.AttributeHash1} = @{AppConsts.AttributeHash} OR {AppConsts.AttributeHash2} = @{AppConsts.AttributeHash}";
-            sqlCommand.Parameters.Clear();
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
+            sqlCommand.CommandText = $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeLastCheck} = @ticks WHERE {AppConsts.AttributeHash} = @hash";
+            sqlCommand.Parameters.AddWithValue("@ticks", DateTime.Now.Ticks);
+            sqlCommand.Parameters.AddWithValue("@hash", hash);
             sqlCommand.ExecuteNonQuery();
         }
     }
 
-    public static void ImgUpdateProperty(string hash, string key, object val)
+    /// <summary>
+    /// Optimized method for updating multiple properties in a single transaction
+    /// </summary>
+    public static void UpdateImageProperties(string hash, string next, float distance, long lastCheckTicks)
     {
+        lock (_lock) {
+            using var sqlCommand = _sqlConnection.CreateCommand();
+            sqlCommand.CommandText = $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeNext} = @next, {AppConsts.AttributeDistance} = @distance, {AppConsts.AttributeLastCheck} = @lastcheck WHERE {AppConsts.AttributeHash} = @hash";
+            sqlCommand.Parameters.AddWithValue("@next", next);
+            sqlCommand.Parameters.AddWithValue("@distance", distance);
+            sqlCommand.Parameters.AddWithValue("@lastcheck", lastCheckTicks);
+            sqlCommand.Parameters.AddWithValue("@hash", hash);
+            sqlCommand.ExecuteNonQuery();
+        }
+    }
+
+    public static void ImgWriteContent(string hash, byte[] imagedata)
+    {
+        var encryptedArray = AppEncryption.Encrypt(imagedata, hash);
         lock (_lock) {
             using (var sqlCommand = _sqlConnection.CreateCommand()) {
                 sqlCommand.Connection = _sqlConnection;
                 sqlCommand.CommandText =
-                    $"UPDATE {AppConsts.TableImages} SET {key} = @{key} WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}";
-                sqlCommand.Parameters.AddWithValue($"@{key}", val);
+                    $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeContent} = @{AppConsts.AttributeContent} WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}";
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeContent}", encryptedArray);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
                 sqlCommand.ExecuteNonQuery();
             }
         }
+    }
+
+    public static byte[] ImgReadContent(string hash)
+    {
+        var encryptedArray = Array.Empty<byte>();
+        lock (_lock) {
+            var sb = new StringBuilder();
+            sb.Append("SELECT ");
+            sb.Append($"{AppConsts.AttributeContent}");
+            sb.Append($" FROM {AppConsts.TableImages}");
+            sb.Append($" WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash};");
+            using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", hash);
+            using var reader = sqlCommand.ExecuteReader();
+            if (reader.HasRows) {
+                while (reader.Read()) {
+                    if (!reader.IsDBNull(0)) {
+                        encryptedArray = (byte[])reader[0];
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (encryptedArray.Length == 0) {
+            return encryptedArray;
+        }
+
+        var data = AppEncryption.Decrypt(encryptedArray, hash);
+        return data ?? Array.Empty<byte>();
     }
 
     public static void UpdateMaxImages()
@@ -245,34 +349,67 @@ public static class AppDatabase
         }
     }
 
-    public static Tuple<string, float>[] GetBeam(string hash)
+    public static float[] GetVector(string hash)
     {
-        Tuple<string, float>[] beam;
         lock (_lock) {
-            beam = new Tuple<string, float>[_vectors.Count];
-            var distances = new float[_vectors.Count];
+            return _vectors[hash];
+        }
+    }
 
-            var vectorArray = new float[_vectors.Count][];
-            var hashArray = new string[_vectors.Count];
-            var index = 0;
-
-            foreach (var kvp in _vectors) {
-                hashArray[index] = kvp.Key;
-                vectorArray[index] = kvp.Value;
-                index++;
-            }
-
-            var vx = _vectors[hash];
-            Parallel.For(0, distances.Length, i => {
-                distances[i] = AppVit.GetDistance(vx, vectorArray[i]);
-            });
-
-            for (var i = 0; i < _vectors.Count; i++) {
-                beam[i] = Tuple.Create(hashArray[i], distances[i]);
-            }
+    public static void SetVector(string hash, float[] vector)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            throw new ArgumentException("Hash cannot be null or empty", nameof(hash));
+        }
+        
+        if (vector == null || vector.Length == 0)
+        {
+            throw new ArgumentException("Vector cannot be null or empty", nameof(vector));
         }
 
-        return beam.OrderBy(e => e.Item2).ToArray();
+        lock (_lock) {
+            try {
+                _vectors[hash] = vector;
+
+                var vectorBytes = Helper.ArrayFromFloat(vector);
+                ImgUpdateProperty(hash, AppConsts.AttributeVector, vectorBytes);
+            }
+            catch (Exception ex)
+            {
+                _vectors.Remove(hash);
+                Console.WriteLine($"Error in SetVector: hash={hash}, vectorLength={vector.Length}, exception={ex.Message}");
+                throw;
+            }
+        }
+    }
+
+    public static Tuple<string, float>[] GetBeam(string hash)
+    {
+        lock (_lock) {
+            var vectorCount = _vectors.Count;
+            if (vectorCount == 0 || !_vectors.ContainsKey(hash)) {
+                return Array.Empty<Tuple<string, float>>();
+            }
+
+            var results = new List<Tuple<string, float>>(vectorCount);
+            var vx = _vectors[hash];
+
+            var kvpArray = _vectors.ToArray();
+            
+            Parallel.ForEach(kvpArray, kvp => {
+                if (kvp.Value != null) {
+                    var distance = AppVit.GetDistance(vx, kvp.Value);
+                    lock (results) {
+                        results.Add(Tuple.Create(kvp.Key, distance));
+                    }
+                }
+            });
+
+            Array.Clear(kvpArray, 0, kvpArray.Length);
+
+            return results.OrderBy(e => e.Item2).ToArray();
+        }
     }
 
     public static DateTime GetMinimalLastView()
@@ -304,8 +441,10 @@ public static class AppDatabase
             sb.Append("SELECT ");
             sb.Append($"{AppConsts.AttributeHash} ");
             sb.Append($"FROM {AppConsts.TableImages} ");
-            sb.Append($"ORDER BY {AppConsts.AttributeLastCheck} ASC ");
-            sb.Append("LIMIT 1;");
+            sb.Append($"WHERE {AppConsts.AttributeLastCheck} = (");
+            sb.Append($"  SELECT MIN({AppConsts.AttributeLastCheck}) ");
+            sb.Append($"  FROM {AppConsts.TableImages}");
+            sb.Append(") LIMIT 1;");
 
             using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
             using var reader = sqlCommand.ExecuteReader();
@@ -315,35 +454,6 @@ public static class AppDatabase
             }
 
             return string.Empty;
-        }
-    }
-
-    public static HashSet<string> GetHistory(string hash)
-    {
-        lock (_lock) {
-            var history = new HashSet<string>();
-            var sb = new StringBuilder();
-            sb.Append("SELECT ");
-            sb.Append($"{AppConsts.AttributeHash2} as paired_hash");
-            sb.Append($" FROM {AppConsts.TablePairs}");
-            sb.Append($" WHERE {AppConsts.AttributeHash1} = @hash");
-            sb.Append(" UNION ");
-            sb.Append("SELECT ");
-            sb.Append($"{AppConsts.AttributeHash1} as paired_hash");
-            sb.Append($" FROM {AppConsts.TablePairs}");
-            sb.Append($" WHERE {AppConsts.AttributeHash2} = @hash;");
-
-            using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
-            sqlCommand.Parameters.AddWithValue("@hash", hash);
-            using var reader = sqlCommand.ExecuteReader();
-
-            if (reader.HasRows) {
-                while (reader.Read()) {
-                    history.Add(reader.GetString(0));
-                }
-            }
-
-            return history;
         }
     }
 
@@ -402,7 +512,6 @@ public static class AppDatabase
         }
     }
 
-
     public static string GetX(IProgress<string>? progress)
     {
         var r = Random.Shared.Next(0, 100);
@@ -415,61 +524,87 @@ public static class AppDatabase
 
     public static (string, string) GetNext(string hashU, string? hashD = null)
     {
-        string message;
-        var oldDistance = GetImg(hashU)!.Value.Distance;
-        var history = GetHistory(hashU);
-        var oldHistorySize = history.Count();
-        if (!string.IsNullOrEmpty(hashD)) {
-            ImgMdf.Delete(hashD);
+        if (string.IsNullOrWhiteSpace(hashU))
+        {
+            return (string.Empty, "invalid hash");
         }
 
-        var next = string.Empty;
-        var distance = 2f;
-        var beam = GetBeam(hashU);
-        for (var i = 0; i < beam.Length; i++) {
-            next = beam[i].Item1;
-            if (next.Equals(hashU)) {
-                continue;
+        string message;
+        
+        try {
+            var imgU = GetImg(hashU);
+            if (imgU == null)
+            {
+                return (string.Empty, "image not found");
+            }
+            
+            var oldDistance = imgU.Value.Distance;
+            
+            if (!string.IsNullOrEmpty(hashD)) {
+                Delete(hashD);
             }
 
-            if (history.Contains(next)) {
-                continue;
-            }
-
-            lock (_lock) {
-                if (!_vectors.TryGetValue(hashU, out var vecX) || !_vectors.TryGetValue(next, out var vecY)) {
-                    continue;
+            var vector = GetVector(hashU);
+            if (vector.Length != AppConsts.VectorSize) {
+                var imagedata = ImgReadContent(hashU);
+                if (imagedata == null || imagedata.Length == 0) {
+                    Delete(hashU);
+                    return (string.Empty, "content not found");
                 }
 
-                distance = AppVit.GetDistance(vecX, vecY);
+                using var image = AppBitmap.GetImage(imagedata);
+                if (image == null) {
+                    Delete(hashU);
+                    return (string.Empty, "invalid image");
+                }
+
+                vector = AppVit.GetVector(image);
+                SetVector(hashU, vector);
+                
+                imagedata = null;
+                GC.Collect();
             }
 
-            break;
-        }
+            var next = string.Empty;
+            var distance = 1f;
+            var beam = GetBeam(hashU);
+            
+            try {
+                for (var i = 0; i < beam.Length; i++) {
+                    next = beam[i].Item1;
+                    if (next.Equals(hashU)) {
+                        continue;
+                    }
 
-        var historySize = GetHistory(hashU).Count();
-        var imgY = GetImg(next);
-        if (Math.Abs(oldDistance - distance) >= 0.0001f) {
-            if (oldHistorySize != historySize) {
-                message = $"[{oldHistorySize}] {oldDistance:F4} {AppConsts.CharRightArrow} [{historySize}] {distance:F4}";
+                    distance = beam[i].Item2;
+                    break;
+                }
+            }
+            finally {
+                if (beam != null && beam.Length > 0) {
+                    Array.Clear(beam, 0, beam.Length);
+                }
+                beam = null;
+            }
+
+            if (string.IsNullOrEmpty(next))
+            {
+                return (string.Empty, "no suitable next image found");
+            }
+
+            if (Math.Abs(oldDistance - distance) >= 0.0001f) {
+                message = $"{oldDistance:F4} {AppConsts.CharRightArrow} {distance:F4}";
             }
             else {
-                message = $"[{oldHistorySize}] {oldDistance:F4} {AppConsts.CharRightArrow} {distance:F4}";
+                message = $"{distance:F4}";
             }
-        }
-        else {
-            if (oldHistorySize != historySize) {
-                message = $"[{oldHistorySize}] {AppConsts.CharRightArrow} [{historySize}] {distance:F4}";
-            }
-            else {
-                message = $"[{historySize}] {distance:F4}";
-            }
-        }
 
-        ImgUpdateProperty(hashU, AppConsts.AttributeNext, next);
-        ImgUpdateProperty(hashU, AppConsts.AttributeDistance, distance);
-        ImgUpdateProperty(hashU, AppConsts.AttributeLastCheck, DateTime.Now.Ticks);
-        return (next, message);
+            return (next, message);
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"Error in GetNext: hashU={hashU}, hashD={hashD}, exception={ex.Message}");
+            return (string.Empty, $"error: {ex.Message}");
+        }
     }
 
     public static string GetY(string hashX, IProgress<string>? progress)
@@ -490,28 +625,76 @@ public static class AppDatabase
         return next;
     }
 
-    public static void AddPair(string hash1, string hash2)
+    public static void ValidateDatabase(IProgress<string>? progress = null)
     {
-        if (string.CompareOrdinal(hash1, hash2) > 0) {
-            (hash1, hash2) = (hash2, hash1);
-        }
-
         lock (_lock) {
-            using (var sqlCommand = _sqlConnection.CreateCommand()) {
-                sqlCommand.Connection = _sqlConnection;
+            try {
+                progress?.Report("Validating database integrity...");
+                
+                if (_sqlConnection.State != System.Data.ConnectionState.Open) {
+                    throw new InvalidOperationException("Database connection is not open");
+                }
+
+                var dbHashes = new HashSet<string>();
                 var sb = new StringBuilder();
-                sb.Append($"INSERT OR IGNORE INTO {AppConsts.TablePairs} (");
-                sb.Append($"{AppConsts.AttributeHash1},");
-                sb.Append($"{AppConsts.AttributeHash2}");
-                sb.Append(") VALUES (");
-                sb.Append($"@{AppConsts.AttributeHash1},");
-                sb.Append($"@{AppConsts.AttributeHash2}");
-                sb.Append(')');
-                sqlCommand.CommandText = sb.ToString();
-                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash1}", hash1);
-                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash2}", hash2);
-                sqlCommand.ExecuteNonQuery();
+                sb.Append($"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages}");
+                
+                using var cmd = new SqliteCommand(sb.ToString(), _sqlConnection);
+                using var reader = cmd.ExecuteReader();
+                
+                while (reader.Read()) {
+                    var hash = reader.GetString(0);
+                    dbHashes.Add(hash);
+                }
+
+                var memoryHashes = new HashSet<string>(_vectors.Keys);
+                var missingInMemory = dbHashes.Except(memoryHashes).ToList();
+                var missingInDb = memoryHashes.Except(dbHashes).ToList();
+
+                if (missingInMemory.Count > 0) {
+                    progress?.Report($"Warning: {missingInMemory.Count} vectors missing in memory");
+                    foreach (var hash in missingInMemory.Take(5)) {
+                        Console.WriteLine($"Missing in memory: {hash}");
+                    }
+                }
+
+                if (missingInDb.Count > 0) {
+                    progress?.Report($"Warning: {missingInDb.Count} vectors missing in database");
+                    foreach (var hash in missingInDb.Take(5)) {
+                        Console.WriteLine($"Missing in DB: {hash}");
+                        _vectors.Remove(hash);
+                    }
+                }
+
+                progress?.Report($"Database validation complete. Memory: {_vectors.Count}, DB: {dbHashes.Count}");
+            }
+            catch (Exception ex) {
+                progress?.Report($"Database validation failed: {ex.Message}");
+                Console.WriteLine($"Database validation error: {ex}");
             }
         }
+    }
+
+    public static void DiagnoseImgUpdatePropertyError(string hash, string key, object val)
+    {
+        Console.WriteLine("=== ImgUpdateProperty Diagnostics ===");
+        Console.WriteLine($"Hash: '{hash}' (length: {hash?.Length})");
+        Console.WriteLine($"Key: '{key}' (length: {key?.Length})");
+        Console.WriteLine($"Value: '{val}' (type: {val?.GetType().Name})");
+        
+        try {
+            var img = GetImg(hash!);
+            Console.WriteLine($"Record exists: {img != null}");
+            if (img != null) {
+                Console.WriteLine($"Record details: RotateMode={img.Value.RotateMode}, Score={img.Value.Score}");
+            }
+        } catch (Exception ex) {
+            Console.WriteLine($"Error checking record: {ex.Message}");
+        }
+
+        Console.WriteLine($"DB Connection State: {_sqlConnection?.State}");
+        Console.WriteLine($"DB Connection String: {_sqlConnection?.ConnectionString}");
+        
+        Console.WriteLine("=== End Diagnostics ===");
     }
 }

@@ -3,10 +3,10 @@ using ImgMzx;
 
 namespace ImgMzxTests;
 
+/*
 [TestClass]
 public class AppVitTest
 {
-    /*
     private static readonly StringBuilder sb = new();
 
     private static void GetVector(
@@ -14,7 +14,7 @@ public class AppVitTest
     {
         var data = AppFile.ReadFile($@"{AppContext.BaseDirectory}images\{name}.jpg");
         Assert.IsNotNull(data);
-        using var image = AppBitmap.GetImage(data);
+        using var image = AppBitmap.GetImage(data, SixLabors.ImageSharp.Processing.RotateMode.None, SixLabors.ImageSharp.Processing.FlipMode.None);
         Assert.IsNotNull(image);
         vector = AppVit.GetVector(image);
         Assert.IsNotNull(vector);
@@ -28,7 +28,7 @@ public class AppVitTest
         var basename = "gab_org";
         var data = AppFile.ReadFile($@"{AppContext.BaseDirectory}images\{basename}.jpg");
         Assert.IsNotNull(data);
-        using var image = AppBitmap.GetImage(data);
+        using var image = AppBitmap.GetImage(data, SixLabors.ImageSharp.Processing.RotateMode.None, SixLabors.ImageSharp.Processing.FlipMode.None);
         Assert.IsNotNull(image);
         var basevector = AppVit.GetVector(image);
         Assert.IsNotNull(basevector);
@@ -67,7 +67,18 @@ public class AppVitTest
         Assert.IsNotNull(v_dalle1);
         GetVector("dalle1", v_dalle1, "dalle2", out var v_dalle2);
 
-        File.WriteAllText($@"{AppContext.BaseDirectory}images\distances.txt", sb.ToString());
+        // Дополнительные проверки для DINOv2
+        sb.AppendLine("\n=== DINOV2 VISION TRANSFORMER RESULTS ===");
+        sb.AppendLine($"Vector size: {basevector.Length}");
+        sb.AppendLine($"Preprocessing:");
+        sb.AppendLine($"  • Resize shortest edge to 256px");
+        sb.AppendLine($"  • Center crop to 224x224");
+        sb.AppendLine($"  • Bicubic resampling");
+        sb.AppendLine($"  • ImageNet normalization (mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])");
+        sb.AppendLine($"  • L2 vector normalization");
+        sb.AppendLine($"Distance metric: Cosine distance (1 - dot product)");
+
+        File.WriteAllText($@"{AppContext.BaseDirectory}images\vit_distances.txt", sb.ToString());
     }
-    */
 }
+*/

@@ -5,17 +5,19 @@ namespace ImgMzx;
 public static class AppConsts
 {
     public const string MzxExtension = "mzx";
+    public const string MexExtension = "mex";
 
     public const string FileDatabase = @"D:\Users\Murad\Spacer\spacer.db";
-    public const string FileVit = @"D:\Users\Murad\Spacer\RN50x64-openai-visual.onnx";
+    public const string FileVit = @"D:\Users\Murad\Spacer\dinov2-base.onnx";
 
     public const string PathHp = @"D:\Users\Murad\Spacer\chunks";
-    public const string PathGbProtected = @"M:\removed";
+    public const string PathDeleted = @"D:\Users\Murad\Spacer\deleted";
+    public const string PathHpBackup = @"G:\Spacer\backup";
     public const string PathRawProtected = @"M:\raw";
+    public const string PathExport = @"M:\export";
 
     public const int MaxImportFiles = 100;
-    public const int VectorSize = 1024;
-    public const int HashLength = 64;
+    public const int HashLength = 16;
 
     public const char CharEllipsis = '\u2026';
     public const char CharRightArrow = '\u2192';
@@ -37,8 +39,4 @@ public static class AppConsts
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
-
-    public const string TablePairs = "pairs";
-    public const string AttributeHash1 = "hash1";
-    public const string AttributeHash2 = "hash2";
 }

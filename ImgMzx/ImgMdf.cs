@@ -1,58 +1,148 @@
 ﻿using SixLabors.ImageSharp.Processing;
-using System.Diagnostics;
 using System.IO;
-using System.Security.Policy;
+using System.Text;
 
 namespace ImgMzx
 {
+    /*
     public static partial class ImgMdf
     {
-        public static void Find(string? hashX, IProgress<string>? progress)
+        private static int _added;
+        private static int _bad;
+        private static int _found;
+        private static DateTime _lastview = DateTime.Now;
+
+        public static void Import(IProgress<string> progress)
         {
-            Img? imgX = null;
-            do {
-                var totalcount = AppDatabase.Count();
-                if (totalcount < 2) {
-                    progress?.Report($"totalcount = {totalcount}");
-                    return;
-                }
-
-                if (hashX != null) {
-                    imgX = AppDatabase.GetImg(hashX);
-                }
-
-                if (imgX == null) {
-                    hashX = AppDatabase.GetX(progress);
-                    if (hashX == null) {
-                        progress?.Report($"totalcount = {totalcount}");
-                        return;
+            AppVars.MaxImages = AppVars.MaxImages - 100;
+            AppVars.Data.UpdateMaxImages(AppVars.MaxImages);
+            _lastview = AppVars.Data.GetMinimalLastView().AddMinutes(-1);
+            _added = 0;
+            _found = 0;
+            _bad = 0;
+            ImportFiles(AppConsts.PathRawProtected, SearchOption.TopDirectoryOnly, progress);
+            if (_added < AppConsts.MaxImportFiles) {
+                var directoryInfo = new DirectoryInfo(AppConsts.PathRawProtected);
+                var ds = directoryInfo.GetDirectories("*.*", SearchOption.TopDirectoryOnly).ToArray();
+                foreach (var di in ds) {
+                    ImportFiles(di.FullName, SearchOption.AllDirectories, progress);
+                    if (_added >= AppConsts.MaxImportFiles) {
+                        break;
                     }
                 }
-                
-                if (!AppPanels.SetLeftPanel(hashX!, progress)) {
-                    Delete(hashX!);
-                    hashX = null;
-                    imgX = null;
-                    continue;
-                }
-
-                var hashY = AppDatabase.GetY(hashX!, progress);
-                if (!AppPanels.SetRightPanel(hashY!, progress)) {
-                    Delete(hashY);
-                    hashX = null;
-                    imgX = null;
-                    continue;
-                }
-
-                break;
             }
-            while (true);
+
+            Helper.CleanupDirectories(AppConsts.PathRawProtected, progress);
+            progress.Report($"Imported a:{_added}/f:{_found}/b:{_bad}");
+        }
+
+        private static void ImportFiles(string path, SearchOption so, IProgress<string> progress)
+        {
+            var directoryInfo = new DirectoryInfo(path);
+            var fs = directoryInfo.GetFiles("*.*", so).ToArray();
+            foreach (var e in fs) {
+                var orgfilename = e.FullName;
+                if (!ImportFile(orgfilename, progress)) {
+                    break;
+                }
+
+                if (_added >= AppConsts.MaxImportFiles) {
+                    break;
+                }
+            }
+
+            progress.Report($"clean-up {path}{AppConsts.CharEllipsis}");
+            Helper.CleanupDirectories(path, progress);
+        }
+
+        private static bool ImportFile(string orgfilename, IProgress<string> progress)
+        {
+            var orgname = Path.GetFileNameWithoutExtension(orgfilename);
+            var hashByName = orgname.ToLowerInvariant();
+            if (AppHash.IsValidHash(hashByName) && AppVars.Data.ContainsImg(hashByName)) {
+                var imagedata = AppFile.ReadMex(hashByName);
+                if (imagedata == null) {
+                    var orgimagedata = AppFile.ReadFile(orgfilename);
+                    if (orgimagedata == null) {
+                        AppFile.MoveToRecycleBin(orgfilename);
+                        _bad++;
+                    }
+                    else {
+                        AppFile.WriteMex(hashByName, orgimagedata);
+                        AppFile.MoveToRecycleBin(orgfilename);
+                        _found++;
+                    }
+                }
+                else {
+                    AppFile.MoveToRecycleBin(orgfilename);
+                    _found++;
+                }
+            }
+            else {
+                var orgimagedata = AppFile.ReadFile(orgfilename);
+                if (orgimagedata == null) {
+                    AppFile.MoveToRecycleBin(orgfilename);
+                    _bad++;
+                }
+                else {
+                    var hash = AppHash.GetHash(orgimagedata);
+                    if (AppVars.Data.ContainsImg(hash)) {
+                        AppFile.MoveToRecycleBin(orgfilename);
+                        _found++;
+                    }
+                    else {
+                        using var image = AppBitmap.GetImage(orgimagedata);
+                        if (image == null) {
+                            AppFile.MoveToRecycleBin(orgfilename);
+                            _bad++;
+                        }
+                        else {
+                            var vector = AppVit.GetVector(image);
+                            if (vector == null) {
+                                AppFile.MoveToRecycleBin(orgfilename);
+                                _bad++;
+                            }
+                            else {
+                                var imgnew = new Img {
+                                    Hash = hash,
+                                    Vector = vector,
+                                    RotateMode = RotateMode.None,
+                                    FlipMode = FlipMode.None,
+                                    LastView = _lastview,
+                                    Score = 0,
+                                    LastCheck = new DateTime(1980, 1, 1),
+                                    Next = string.Empty,
+                                    Distance = 1f
+                                };
+
+                                AppVars.Data.AddImg(imgnew);
+                                AppFile.WriteMex(hash, orgimagedata);
+                                AppVars.Vectors.AddVector(hash, vector);
+                                AppFile.MoveToRecycleBin(orgfilename);
+                                _added++;
+                                (var nextNew, var message) = AppVars.Data.GetNext(hash);
+                                _lastview = _lastview.AddMinutes(-1);
+                            }
+                        }
+                    }
+                }
+            }
+
+            progress.Report($"importing {orgfilename} (a:{_added})/f:{_found}/b:{_bad}){AppConsts.CharEllipsis}");
+            return true;
+        }
+
+        public void Export(IProgress<string>? progress)
+        {
+            progress?.Report($"Exporting{AppConsts.CharEllipsis}");
+            var filename0 = Export(_imgPanels[0]!.Value.Hash);
+            var filename1 = Export(_imgPanels[1]!.Value.Hash);
+            progress?.Report($"Exported to {filename0} and {filename1}");
         }
 
         public static void Rotate(string hash, RotateMode rotatemode, FlipMode flipmode)
         {
-            var filename = AppFile.GetFileName(hash, AppConsts.PathHp);
-            var imagedata = AppFile.ReadEncryptedFile(filename);
+            var imagedata = AppFile.ReadMex(hash);
             if (imagedata == null) {
                 return;
             }
@@ -63,68 +153,25 @@ namespace ImgMzx
             }
 
             var rvector = AppVit.GetVector(image);
-            AppDatabase.ImgUpdateProperty(hash, AppConsts.AttributeVector, Helper.ArrayFromFloat(rvector));
-            AppDatabase.ImgUpdateProperty(hash, AppConsts.AttributeRotateMode, (int)rotatemode);
-            AppDatabase.ImgUpdateProperty(hash, AppConsts.AttributeFlipMode, (int)flipmode);
-        }
-
-        public static void Delete(string hashD)
-        {
-            var filename = AppFile.GetFileName(hashD, AppConsts.PathHp);
-            DeleteEncryptedFile(filename);
-            AppDatabase.Delete(hashD);
-        }
-
-        private static void DeleteFile(string filename)
-        {
-            if (!File.Exists(filename)) {
-                return;
-            }
-
-            File.SetAttributes(filename, FileAttributes.Normal);
-            var name = Path.GetFileNameWithoutExtension(filename).ToLower();
-            var ext = Path.GetExtension(filename);
-            while (ext.StartsWith(".")) {
-                ext = ext[1..];
-            }
-
-            var recycledName = AppFile.GetRecycledName(name, ext, AppConsts.PathGbProtected, DateTime.Now);
-            AppFile.CreateDirectory(recycledName);
-            File.Move(filename, recycledName);
-        }
-
-        private static void DeleteEncryptedFile(string filename)
-        {
-            if (!File.Exists(filename)) {
-                return;
-            }
-
-            File.SetAttributes(filename, FileAttributes.Normal);
-            var name = Path.GetFileNameWithoutExtension(filename).ToLower();
-            var array = AppFile.ReadEncryptedFile(filename);
-            if (array != null) {
-                var ext = AppBitmap.GetExtension(array);
-                var recycledName = AppFile.GetRecycledName(name, ext, AppConsts.PathGbProtected, DateTime.Now);
-                AppFile.CreateDirectory(recycledName);
-                File.WriteAllBytes(recycledName, array);
-            }
-
-            File.Delete(filename);
+            AppFile.WriteVec(hash, rvector);
+            AppVars.Data.UpdateImg(hash, AppConsts.AttributeRotateMode, (int)rotatemode);
+            AppVars.Data.UpdateImg(hash, AppConsts.AttributeFlipMode, (int)flipmode);
         }
 
         public static string Export(string hashE)
         {
-            var filename = AppFile.GetFileName(hashE, AppConsts.PathHp);
-            var name = Path.GetFileNameWithoutExtension(filename).ToLower();
-            var array = AppFile.ReadEncryptedFile(filename);
-            if (array != null) {
-                var ext = AppBitmap.GetExtension(array);
-                var recycledName = AppFile.GetRecycledName(name, ext, AppConsts.PathGbProtected, DateTime.Now);
+            var imagedata = AppFile.ReadMex(hashE);
+            if (imagedata != null) {
+                var ext = AppBitmap.GetExtension(imagedata);
+                var recycledName = AppFile.GetRecycledName(hashE, ext, AppConsts.PathExport, DateTime.Now);
                 AppFile.CreateDirectory(recycledName);
-                File.WriteAllBytes(recycledName, array);
+                File.WriteAllBytes(recycledName, imagedata);
+                var name = Path.GetFileName(recycledName);
+                return name;
             }
 
-            return name;
+            return string.Empty;
         }
     }
+    */
 }
