@@ -95,5 +95,36 @@ namespace ImgMzx
             Buffer.BlockCopy(buffer, 0, array, 0, buffer.Length);
             return array;
         }
+
+        public static HashSet<string> HistoryFromString(string history)
+        {
+            var set = new HashSet<string>();
+            if (string.IsNullOrEmpty(history)) {
+                return set;
+            }
+
+            var offset = 0;
+            while (offset < history.Length) {
+                var slice = history.Substring(offset, AppConsts.HashLength);
+                set.Add(slice);
+                offset += AppConsts.HashLength;
+            }
+
+            return set;
+        }
+
+        public static string HistoryToString(HashSet<string> history)
+        {
+            if (history.Count == 0) {
+                return string.Empty;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            foreach (var slice in history) {
+                sb.Append(slice);
+            }
+
+            return sb.ToString();
+        }
     }
 }

@@ -12,4 +12,5 @@ public struct Img
     public int Score;
     public string Next;
     public float Distance;
+    public string History;
 }

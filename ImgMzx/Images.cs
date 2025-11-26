@@ -558,7 +558,8 @@ public partial class Images : IDisposable
             sb.Append($"{AppConsts.AttributeScore},"); // 4
             sb.Append($"{AppConsts.AttributeLastCheck},"); // 5
             sb.Append($"{AppConsts.AttributeDistance},"); // 6
-            sb.Append($"{AppConsts.AttributeHash}"); // 7
+            sb.Append($"{AppConsts.AttributeHash},"); // 7
+            sb.Append($"{AppConsts.AttributeHistory}"); // 8
             sb.Append($" FROM {AppConsts.TableImages}");
             sb.Append($" WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}");
             using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
@@ -574,7 +575,8 @@ public partial class Images : IDisposable
                         Score = (int)reader.GetInt64(4),
                         LastCheck = new DateTime(reader.GetInt64(5)),
                         Distance = reader.GetFloat(6),
-                        Hash = reader.IsDBNull(7) ? string.Empty : reader.GetString(7)
+                        Hash = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
+                        History = reader.IsDBNull(8) ? string.Empty : reader.GetString(8)
                     };
 
                     return img;
@@ -614,6 +616,7 @@ public partial class Images : IDisposable
                 sb.Append($"{AppConsts.AttributeLastCheck},");
                 sb.Append($"{AppConsts.AttributeDistance},");
                 sb.Append($"{AppConsts.AttributeVector},");
+                sb.Append($"{AppConsts.AttributeHistory}");
                 sb.Append(") VALUES (");
                 sb.Append($"@{AppConsts.AttributeHash},");
                 sb.Append($"@{AppConsts.AttributeRotateMode},");
@@ -623,7 +626,8 @@ public partial class Images : IDisposable
                 sb.Append($"@{AppConsts.AttributeScore},");
                 sb.Append($"@{AppConsts.AttributeLastCheck},");
                 sb.Append($"@{AppConsts.AttributeDistance},");
-                sb.Append($"@{AppConsts.AttributeVector}");
+                sb.Append($"@{AppConsts.AttributeVector},");
+                sb.Append($"@{AppConsts.AttributeHistory}");
                 sb.Append(')');
                 sqlCommand.CommandText = sb.ToString();
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
@@ -635,6 +639,7 @@ public partial class Images : IDisposable
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.LastCheck.Ticks);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", Helper.ArrayFromFloat(vector));
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHistory}", img.History);
                 sqlCommand.ExecuteNonQuery();
             }
         }
@@ -705,64 +710,72 @@ public partial class Images : IDisposable
         }
     }
 
+    private int _previousHistLen = -1;
+
     public string? GetX()
     {
         lock (_lock) {
             var sb = new StringBuilder();
-
+            
             sb.Append("SELECT ");
-            sb.Append($"(MAX({AppConsts.AttributeLastView}) - MIN({AppConsts.AttributeLastView})) / 864000000000 as e ");
-            sb.Append($"FROM {AppConsts.TableImages};");
+            sb.Append($"  LENGTH({AppConsts.AttributeHistory}) as hist_len, ");
+            sb.Append($"  COUNT(*) as cnt ");
+            sb.Append($"FROM {AppConsts.TableImages} ");
+            sb.Append($"GROUP BY hist_len ");
+            sb.Append($"ORDER BY hist_len;");
 
-            long e;
+            var histGroups = new List<(int histLen, int count)>();
             using (var cmd = new SqliteCommand(sb.ToString(), _sqlConnection)) {
-                using (var reader1 = cmd.ExecuteReader()) {
-                    if (!reader1.HasRows || !reader1.Read()) {
-                        return null;
+                using (var reader = cmd.ExecuteReader()) {
+                    while (reader.Read()) {
+                        histGroups.Add((reader.GetInt32(0), reader.GetInt32(1)));
                     }
-
-                    e = reader1.GetInt64(0);
                 }
             }
 
-            sb.Clear();
-            sb.Append("SELECT day_value FROM (");
-            sb.Append($"  SELECT ({AppConsts.AttributeLastView} / 864000000000) as day_value,");
-            sb.Append($"    (SELECT MAX({AppConsts.AttributeLastView}) FROM {AppConsts.TableImages}) / 864000000000 - ");
-            sb.Append($"    ({AppConsts.AttributeLastView} / 864000000000) + 1 as weight");
-            sb.Append($"  FROM {AppConsts.TableImages} ");
-            sb.Append($"  GROUP BY day_value");
-            sb.Append($") ORDER BY (weight + ABS(RANDOM()) % @e) DESC LIMIT 1;");
-
-            long selectedDay;
-            using (var cmd = new SqliteCommand(sb.ToString(), _sqlConnection)) {
-                cmd.Parameters.AddWithValue("@e", e);
-                using (var reader1 = cmd.ExecuteReader()) {
-                    if (!reader1.HasRows || !reader1.Read()) {
-                        return null;
-                    }
-
-                    selectedDay = reader1.GetInt64(0);
-                }
+            if (histGroups.Count == 0) {
+                return null;
             }
+
+            var selectedHistLen = -1;
+            do {
+                selectedHistLen = histGroups[^1].histLen;
+                for (var i = 0; i < histGroups.Count; i++) {
+                    if (i == histGroups.Count - 1 || Random.Shared.Next(10) > 0) {
+                        selectedHistLen = histGroups[i].histLen;
+                        break;
+                    }
+                }
+            } while (selectedHistLen == -1);
+            
+            var imode = Random.Shared.Next(15);
+            var smode = imode switch {
+                0 => $"{AppConsts.AttributeDistance} LIMIT 1",
+                1 => $"{AppConsts.AttributeDistance} DESC LIMIT 1",
+                2 => $"{AppConsts.AttributeScore} LIMIT 1",
+                3 => $"{AppConsts.AttributeLastCheck} DESC LIMIT 1",
+                4 => $"{AppConsts.AttributeLastView} DESC LIMIT 1000 OFFSET 1000",
+                _ => $"{AppConsts.AttributeLastView} LIMIT 1"
+
+            };
 
             sb.Clear();
             sb.Append($"SELECT {AppConsts.AttributeHash} ");
             sb.Append($"FROM {AppConsts.TableImages} ");
-            sb.Append($"WHERE ({AppConsts.AttributeLastView} / 864000000000) = @selectedDay ");
-            sb.Append($"ORDER BY ABS(RANDOM()) LIMIT 1;");
+            sb.Append($"ORDER BY {smode}");
+
 
             using (var cmd = new SqliteCommand(sb.ToString(), _sqlConnection)) {
-                cmd.Parameters.AddWithValue("@selectedDay", selectedDay);
-                using (var reader2 = cmd.ExecuteReader()) {
-                    if (reader2.HasRows && reader2.Read()) {
-                        return reader2.GetString(0);
+                cmd.Parameters.AddWithValue("@histLen", selectedHistLen);
+                using (var reader = cmd.ExecuteReader()) {
+                    if (reader.HasRows && reader.Read()) {
+                        return reader.GetString(0);
                     }
                 }
             }
-        }
 
-        return null;
+            return null;
+        }
     }
 
     private static float ComputeDistance(ReadOnlySpan<float> x, ReadOnlySpan<float> y)
@@ -803,7 +816,27 @@ public partial class Images : IDisposable
             return "image not found";
         }
 
-        var oldDistance = img.Value.Distance;
+        var hs = Helper.HistoryFromString(img.Value.History);
+        var hsnew = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var h in hs) {
+            if (ContainsImgInDatabase(h)) {
+                hsnew.Add(h);
+            }
+        }
+
+        if (hs.Count != hsnew.Count) {
+            var history = Helper.HistoryToString(hsnew);
+            UpdateImgInDatabase(hash, AppConsts.AttributeHistory, history);
+            img = GetImgFromDatabase(hash);
+            if (img == null) {
+                return "image not found";
+            }
+
+            hsnew.Clear();
+            hs.Clear();
+            hs = Helper.HistoryFromString(img.Value.History);
+        }
+
         var oldNext = img.Value.Next;
         if (string.IsNullOrEmpty(oldNext)) {
             oldNext = "XXXX";
@@ -821,10 +854,7 @@ public partial class Images : IDisposable
 
             var vector = GetVectorSpan(index);
             var next = oldNext;
-            var distance = oldDistance;
-            if (!AppHash.IsValidHash(next) || !ContainsImgInDatabase(next)) {
-                distance = 1f;
-            }
+            var distance = 1f;
 
             var beam = GetBeam(vector);
             for (var i = 0; i < beam.Length; i++) {
@@ -836,11 +866,12 @@ public partial class Images : IDisposable
                     continue;
                 }
 
-                if (beam[i].Distance < distance) {
-                    next = beam[i].Hash;
-                    distance = beam[i].Distance;
+                if (hs.Contains(beam[i].Hash)) {
+                    continue;
                 }
 
+                next = beam[i].Hash;
+                distance = beam[i].Distance;
                 break;
             }
 
@@ -848,8 +879,8 @@ public partial class Images : IDisposable
                 return "no suitable next image found";
             }
 
-            if (!oldNext.Equals(next) || Math.Abs(oldDistance - distance) >= 0.0001f) {
-                message = $"{oldNext[..4]} {oldDistance:F4} {AppConsts.CharRightArrow} {next[..4]} {distance:F4}";
+            if (!oldNext.Equals(next) || Math.Abs(img.Value.Distance - distance) >= 0.0001f) {
+                message = $"s{img.Value.Score} {oldNext[..4]}{AppConsts.CharEllipsis} {img.Value.Distance:F4} {AppConsts.CharRightArrow} {next[..4]}{AppConsts.CharEllipsis} {distance:F4}";
                 UpdateImgInDatabase(hash, AppConsts.AttributeNext, next);
                 UpdateImgInDatabase(hash, AppConsts.AttributeDistance, distance);
             }
@@ -866,7 +897,7 @@ public partial class Images : IDisposable
         string hash,
         out byte[]? imagedata,
         out Img? img,
-        out SixLabors.ImageSharp.Image<Rgb24>? image,
+        out Image<Rgb24>? image,
         out string extension,
         out DateTime? taken)
     {
@@ -974,17 +1005,19 @@ public partial class Images : IDisposable
 
     public void Find(string? hashX, IProgress<string>? progress)
     {
-        var hashToCheck = GetLastCheckFromDatabase();
-        if (hashToCheck == null) {
-            progress?.Report("nothing to show");
-            return;
-        }
+        for (var i = 0; i< 10; i++) {
+            var hashToCheck = GetLastCheckFromDatabase();
+            if (hashToCheck == null) {
+                 progress?.Report("nothing to show");
+                return;
+            }
 
-        var imgToCheck = GetImgFromDatabase(hashToCheck);
-        if (imgToCheck != null) {
-            var message = GetNext(hashToCheck);
-            var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgToCheck.Value.LastCheck));
-            progress?.Report($"[{lastcheck} ago] {hashToCheck[..4]}: {message}");
+            var imgToCheck = GetImgFromDatabase(hashToCheck);
+            if (imgToCheck != null) {
+                var message = GetNext(hashToCheck);
+                var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgToCheck.Value.LastCheck));
+                progress?.Report($"[{lastcheck} ago] {hashToCheck[..4]}{AppConsts.CharEllipsis}: {message}");
+            }
         }
 
         var sb = new StringBuilder();
@@ -1039,8 +1072,11 @@ public partial class Images : IDisposable
                     continue;
                 }
             }
+            else {
+                sb.Append($"= {imgX.Value.Distance:F4}");
+            }
 
-            progress?.Report(sb.ToString());
+                progress?.Report(sb.ToString());
             break;
         }
         while (true);
@@ -1064,6 +1100,16 @@ public partial class Images : IDisposable
             UpdateImgInDatabase(hashX, AppConsts.AttributeLastView, DateTime.Now.Ticks);
             UpdateImgInDatabase(hashY, AppConsts.AttributeLastView, DateTime.Now.Ticks);
 
+            var hs = Helper.HistoryFromString(imgX.Value.History);
+            hs.Add(hashY);
+            var history = Helper.HistoryToString(hs);
+            UpdateImgInDatabase(hashX, AppConsts.AttributeHistory, history);
+
+            hs = Helper.HistoryFromString(imgY.Value.History);
+            hs.Add(hashX);
+            history = Helper.HistoryToString(hs);
+            UpdateImgInDatabase(hashY, AppConsts.AttributeHistory, history);
+
             progress?.Report($"Calculating{AppConsts.CharEllipsis}");
             var message = GetNext(hashX);
             progress?.Report(message);
@@ -1078,6 +1124,12 @@ public partial class Images : IDisposable
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
         var message = GetNext(hashY, hashX);
+        var imgY = GetImgFromDatabase(hashY);
+        if (imgY != null) {
+            UpdateImgInDatabase(hashY, AppConsts.AttributeScore, imgY.Value.Score + 1);
+            UpdateImgInDatabase(hashY, AppConsts.AttributeLastView, DateTime.Now.Ticks);
+        }
+
         progress?.Report(message);
     }
 
@@ -1087,6 +1139,12 @@ public partial class Images : IDisposable
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
         var message = GetNext(hashX, hashY);
+        var imgX = GetImgFromDatabase(hashX);
+        if (imgX != null) {
+            UpdateImgInDatabase(hashX, AppConsts.AttributeScore, imgX.Value.Score + 1);
+            UpdateImgInDatabase(hashX, AppConsts.AttributeLastView, DateTime.Now.Ticks);
+        }
+
         progress?.Report(message);
     }
 
@@ -1187,11 +1245,13 @@ public partial class Images : IDisposable
                                 Score = 0,
                                 LastCheck = new DateTime(1980, 1, 1),
                                 Next = string.Empty,
-                                Distance = 1f
+                                Distance = 1f,
+                                History = string.Empty
                             };
 
                             AddImgToDatabase(imgnew, vector);
                             AppFile.WriteMex(hash, orgimagedata);
+                            AddVector(hash, vector);
                             AppFile.MoveToRecycleBin(orgfilename);
                             added++;
                             var message = GetNext(hash);

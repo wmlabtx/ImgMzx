@@ -151,6 +151,11 @@ public sealed partial class MainWindow
             var sb = new StringBuilder();
             sb.Append($"{panels[index]!.Value.Hash[..4]}.{panels[index]!.Value.Extension}");
 
+            if (panels[index]!.Value.Img.History.Length > 0) {
+                var size = panels[index]!.Value.Img.History.Length / AppConsts.HashLength;
+                sb.Append($" [{size}]");
+            }
+
             if (panels[index]!.Value.Img.Score > 0) {
                 sb.Append($" *{panels[index]!.Value.Img.Score}");
             }
