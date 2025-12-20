@@ -37,6 +37,7 @@ public static class AppConsts
     public const string AttributeNext = "next";
     public const string AttributeDistance = "distance";
     public const string AttributeHistory = "history";
+    public const string AttributeFamily = "family";
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";

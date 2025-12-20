@@ -95,10 +95,20 @@ public sealed partial class MainWindow
     private async void ButtonLeftNextMouseClick()
     {
         DisableElements();
-        await Task.Run(() => { _images.Confirm(_progress); }).ConfigureAwait(true);
-        await Task.Run(() => { _images.Find(null, _progress); }).ConfigureAwait(true);
-        DrawCanvas();
-        EnableElements();
+        try {
+            await Task.Run(() =>
+            {
+                _images.Confirm(_progress);
+                _images.Find(null, _progress);
+            });
+
+            DrawCanvas();
+        }
+        catch (Exception) {
+        }
+        finally {
+            EnableElements();
+        }
     }
 
     private async void ButtonRightNextMouseClick()
@@ -177,8 +187,11 @@ public sealed partial class MainWindow
 
             pLabels[index].Text = sb.ToString();
             pLabels[index].Background = System.Windows.Media.Brushes.White;
-            if (panels[index]!.Value.Img.Score == 0) {
+            if (panels[index]!.Value.Img.History.Length == 0 && panels[index]!.Value.Img.Score == 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
+            }
+            else if (panels[index]!.Value.Img.History.Length == 0) {
+                pLabels[index].Background = System.Windows.Media.Brushes.LightYellow;
             }
         }
 

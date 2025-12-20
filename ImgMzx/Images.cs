@@ -192,9 +192,13 @@ public partial class Images : IDisposable
         var vectorCount = Vector<float>.Count;
         var vectorizedLength = (pixels.Length / vectorCount) * vectorCount;
 
-        var rValues = ArrayPool<float>.Shared.Rent(vectorCount);
-        var gValues = ArrayPool<float>.Shared.Rent(vectorCount);
-        var bValues = ArrayPool<float>.Shared.Rent(vectorCount);
+        //var rValues = ArrayPool<float>.Shared.Rent(vectorCount);
+        //var gValues = ArrayPool<float>.Shared.Rent(vectorCount);
+        //var bValues = ArrayPool<float>.Shared.Rent(vectorCount);
+
+        Span<float> rValues = stackalloc float[vectorCount];
+        Span<float> gValues = stackalloc float[vectorCount];
+        Span<float> bValues = stackalloc float[vectorCount];
 
         try {
             for (int i = 0; i < vectorizedLength; i += vectorCount) {
@@ -219,9 +223,9 @@ public partial class Images : IDisposable
             }
         }
         finally {
-            ArrayPool<float>.Shared.Return(rValues);
-            ArrayPool<float>.Shared.Return(gValues);
-            ArrayPool<float>.Shared.Return(bValues);
+            //ArrayPool<float>.Shared.Return(rValues);
+            //ArrayPool<float>.Shared.Return(gValues);
+            //ArrayPool<float>.Shared.Return(bValues);
         }
 
         for (int i = vectorizedLength; i < pixels.Length; i++) {
@@ -546,6 +550,40 @@ public partial class Images : IDisposable
         }
     }
 
+    private string GetNearGroupFromDatabase()
+    {
+        lock (_lock) {
+            using var cmdMin = _sqlConnection.CreateCommand();
+            cmdMin.CommandText = $"SELECT MIN(LENGTH({AppConsts.AttributeHistory})) FROM {AppConsts.TableImages};";
+            var minObj = cmdMin.ExecuteScalar();
+            if (minObj == null || minObj == DBNull.Value) {
+                return "0:0:0";
+            }
+
+            var histLen = Convert.ToInt32(minObj);
+
+            using var cmdScore = _sqlConnection.CreateCommand();
+            cmdScore.CommandText = $"SELECT MIN({AppConsts.AttributeScore}) FROM {AppConsts.TableImages} WHERE LENGTH({AppConsts.AttributeHistory}) = @minLen;";
+            cmdScore.Parameters.AddWithValue("@minLen", histLen);
+            var minScoreObj = cmdScore.ExecuteScalar();
+            if (minScoreObj == null || minScoreObj == DBNull.Value) {
+                return "0:0:0";
+            }
+
+            var score = Convert.ToInt32(minScoreObj);
+
+            using var cmdCount = _sqlConnection.CreateCommand();
+            cmdCount.CommandText = $"SELECT COUNT(*) FROM {AppConsts.TableImages} WHERE LENGTH({AppConsts.AttributeHistory}) = @minLen AND {AppConsts.AttributeScore} = @score;";
+            cmdCount.Parameters.AddWithValue("@minLen", histLen);
+            cmdCount.Parameters.AddWithValue("@score", score);
+            var cntObj = cmdCount.ExecuteScalar();
+            var cnt = cntObj == null || cntObj == DBNull.Value ? 0 : Convert.ToInt32(cntObj);
+
+            var groupLen = histLen / AppConsts.HashLength;
+            return $"{groupLen}:{score}:{cnt}";
+        }
+    }
+
     public Img? GetImgFromDatabase(string hash)
     {
         lock (_lock) {
@@ -710,8 +748,6 @@ public partial class Images : IDisposable
         }
     }
 
-    private int _previousHistLen = -1;
-
     public string? GetX()
     {
         lock (_lock) {
@@ -748,15 +784,13 @@ public partial class Images : IDisposable
                 }
             } while (selectedHistLen == -1);
             
-            var imode = Random.Shared.Next(15);
-            var smode = imode switch {
+            var imode = Random.Shared.Next(21);
+            string smode = imode switch {
                 0 => $"{AppConsts.AttributeDistance} LIMIT 1",
-                1 => $"{AppConsts.AttributeDistance} DESC LIMIT 1",
-                2 => $"{AppConsts.AttributeScore} LIMIT 1",
-                3 => $"{AppConsts.AttributeLastCheck} DESC LIMIT 1",
-                4 => $"{AppConsts.AttributeLastView} DESC LIMIT 1000 OFFSET 1000",
-                _ => $"{AppConsts.AttributeLastView} LIMIT 1"
-
+                1 => $"{AppConsts.AttributeLastCheck} DESC LIMIT 1",
+                2 => $"{AppConsts.AttributeLastView} DESC LIMIT 1000 OFFSET 1000",
+                3 or 4 or 5 or 6 => $"LENGTH({AppConsts.AttributeHistory}), {AppConsts.AttributeLastView} DESC LIMIT 1",
+                _ => $"LENGTH({AppConsts.AttributeHistory}), {AppConsts.AttributeScore}, {AppConsts.AttributeDistance} LIMIT 1",
             };
 
             sb.Clear();
@@ -792,7 +826,6 @@ public partial class Images : IDisposable
     public (string Hash, float Distance)[] GetBeam(ReadOnlySpan<float> query)
     {
         lock (_lock) {
-
             var results = new (string Hash, float Distance)[_countVectors];
             var localquery = query.ToArray();
             Parallel.For(0, _countVectors, i => {
@@ -803,7 +836,8 @@ public partial class Images : IDisposable
                 results[i] = (hash, distance);
             });
 
-            return [.. results.OrderBy(x => x.Distance)];
+            Array.Sort(results, (a, b) => a.Distance.CompareTo(b.Distance));
+            return results;
         }
     }
 
@@ -1005,7 +1039,7 @@ public partial class Images : IDisposable
 
     public void Find(string? hashX, IProgress<string>? progress)
     {
-        for (var i = 0; i< 10; i++) {
+        for (var i = 0; i < 10; i++) {
             var hashToCheck = GetLastCheckFromDatabase();
             if (hashToCheck == null) {
                  progress?.Report("nothing to show");
@@ -1024,8 +1058,9 @@ public partial class Images : IDisposable
         do {
             sb.Clear();
             var totalimages = GetCountFromDatabase();
+            var nearGroup = GetNearGroupFromDatabase();
             var diff = totalimages - _maxImages;
-            sb.Append($"{totalimages} ({diff}) ");
+            sb.Append($"{nearGroup}/{totalimages} ({diff}) ");
 
             if (string.IsNullOrEmpty(hashX)) {
                 hashX = GetX();
@@ -1099,6 +1134,8 @@ public partial class Images : IDisposable
             UpdateImgInDatabase(hashY, AppConsts.AttributeScore, imgY.Value.Score + 1);
             UpdateImgInDatabase(hashX, AppConsts.AttributeLastView, DateTime.Now.Ticks);
             UpdateImgInDatabase(hashY, AppConsts.AttributeLastView, DateTime.Now.Ticks);
+            UpdateImgInDatabase(hashX, AppConsts.AttributeLastCheck, DateTime.MinValue.Ticks);
+            UpdateImgInDatabase(hashY, AppConsts.AttributeLastCheck, DateTime.MinValue.Ticks);
 
             var hs = Helper.HistoryFromString(imgX.Value.History);
             hs.Add(hashY);
@@ -1128,6 +1165,7 @@ public partial class Images : IDisposable
         if (imgY != null) {
             UpdateImgInDatabase(hashY, AppConsts.AttributeScore, imgY.Value.Score + 1);
             UpdateImgInDatabase(hashY, AppConsts.AttributeLastView, DateTime.Now.Ticks);
+            UpdateImgInDatabase(hashY, AppConsts.AttributeLastCheck, DateTime.MinValue.Ticks);
         }
 
         progress?.Report(message);
@@ -1143,6 +1181,7 @@ public partial class Images : IDisposable
         if (imgX != null) {
             UpdateImgInDatabase(hashX, AppConsts.AttributeScore, imgX.Value.Score + 1);
             UpdateImgInDatabase(hashX, AppConsts.AttributeLastView, DateTime.Now.Ticks);
+            UpdateImgInDatabase(hashX, AppConsts.AttributeLastCheck, DateTime.MinValue.Ticks);
         }
 
         progress?.Report(message);
@@ -1328,6 +1367,8 @@ public partial class Images : IDisposable
                     _countVectors = 0;
                     _capacityVectors = 0;
                     _sqlConnection?.Dispose();
+                    _session?.Dispose();
+                    _sessionOptions?.Dispose();                    
 
                     while (_inputDataPool.TryDequeue(out _)) { }
                     while (_vectorPool.TryDequeue(out _)) { }
