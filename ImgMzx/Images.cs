@@ -38,6 +38,7 @@ public partial class Images : IDisposable
     private bool disposedValue;
 
     private int _maxImages;
+    private string _lastFamily;
     private Memory<float> _vectors;
     private IMemoryOwner<float> _vectorsOwner;
     private string[] _hashes;
@@ -80,15 +81,18 @@ public partial class Images : IDisposable
         }
 
         _maxImages = InitialCapacity;
+        _lastFamily = string.Empty;
         var sb = new StringBuilder();
         sb.Append("SELECT ");
-        sb.Append($"{AppConsts.AttributeMaxImages}");
+        sb.Append($"{AppConsts.AttributeMaxImages},");
+        sb.Append($"{AppConsts.AttributeFamily}");
         sb.Append($" FROM {AppConsts.TableVars};");
         using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
         using var reader = sqlCommand.ExecuteReader();
         if (reader.HasRows) {
             while (reader.Read()) {
-                _maxImages = reader.GetInt32(0);
+                _maxImages = reader.GetInt32(0); 
+                _lastFamily = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
                 break;
             }
         }
@@ -192,40 +196,29 @@ public partial class Images : IDisposable
         var vectorCount = Vector<float>.Count;
         var vectorizedLength = (pixels.Length / vectorCount) * vectorCount;
 
-        //var rValues = ArrayPool<float>.Shared.Rent(vectorCount);
-        //var gValues = ArrayPool<float>.Shared.Rent(vectorCount);
-        //var bValues = ArrayPool<float>.Shared.Rent(vectorCount);
-
         Span<float> rValues = stackalloc float[vectorCount];
         Span<float> gValues = stackalloc float[vectorCount];
         Span<float> bValues = stackalloc float[vectorCount];
 
-        try {
-            for (int i = 0; i < vectorizedLength; i += vectorCount) {
-                for (int j = 0; j < vectorCount && (i + j) < pixels.Length; j++) {
-                    var pixel = pixels[i + j];
-                    rValues[j] = pixel.R;
-                    gValues[j] = pixel.G;
-                    bValues[j] = pixel.B;
-                }
-
-                var rVec = new Vector<float>(rValues);
-                var gVec = new Vector<float>(gValues);
-                var bVec = new Vector<float>(bValues);
-
-                rVec = (rVec * scaleVec - rMeanVec) * rStdVec;
-                gVec = (gVec * scaleVec - gMeanVec) * gStdVec;
-                bVec = (bVec * scaleVec - bMeanVec) * bStdVec;
-
-                rVec.CopyTo(rSpan.Slice(i, vectorCount));
-                gVec.CopyTo(gSpan.Slice(i, vectorCount));
-                bVec.CopyTo(bSpan.Slice(i, vectorCount));
+        for (int i = 0; i < vectorizedLength; i += vectorCount) {
+            for (int j = 0; j < vectorCount && (i + j) < pixels.Length; j++) {
+                var pixel = pixels[i + j];
+                rValues[j] = pixel.R;
+                gValues[j] = pixel.G;
+                bValues[j] = pixel.B;
             }
-        }
-        finally {
-            //ArrayPool<float>.Shared.Return(rValues);
-            //ArrayPool<float>.Shared.Return(gValues);
-            //ArrayPool<float>.Shared.Return(bValues);
+
+            var rVec = new Vector<float>(rValues);
+            var gVec = new Vector<float>(gValues);
+            var bVec = new Vector<float>(bValues);
+
+            rVec = (rVec * scaleVec - rMeanVec) * rStdVec;
+            gVec = (gVec * scaleVec - gMeanVec) * gStdVec;
+            bVec = (bVec * scaleVec - bMeanVec) * bStdVec;
+
+            rVec.CopyTo(rSpan.Slice(i, vectorCount));
+            gVec.CopyTo(gSpan.Slice(i, vectorCount));
+            bVec.CopyTo(bSpan.Slice(i, vectorCount));
         }
 
         for (int i = vectorizedLength; i < pixels.Length; i++) {
@@ -533,6 +526,19 @@ public partial class Images : IDisposable
         }
     }
 
+    public void UpdateLastFamilyInDatabase(string lastFamily)
+    {
+        lock (_lock) {
+            using var sqlCommand = _sqlConnection.CreateCommand();
+            sqlCommand.Connection = _sqlConnection;
+            sqlCommand.CommandText =
+                $"UPDATE {AppConsts.TableVars} SET {AppConsts.AttributeFamily} = @{AppConsts.AttributeFamily}";
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", lastFamily);
+            sqlCommand.ExecuteNonQuery();
+            _lastFamily = lastFamily;
+        }
+    }
+
     public int GetCountFromDatabase()
     {
         lock (_lock) {
@@ -597,7 +603,8 @@ public partial class Images : IDisposable
             sb.Append($"{AppConsts.AttributeLastCheck},"); // 5
             sb.Append($"{AppConsts.AttributeDistance},"); // 6
             sb.Append($"{AppConsts.AttributeHash},"); // 7
-            sb.Append($"{AppConsts.AttributeHistory}"); // 8
+            sb.Append($"{AppConsts.AttributeHistory},"); // 8
+            sb.Append($"{AppConsts.AttributeFamily}"); // 9
             sb.Append($" FROM {AppConsts.TableImages}");
             sb.Append($" WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash}");
             using var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection);
@@ -614,7 +621,8 @@ public partial class Images : IDisposable
                         LastCheck = new DateTime(reader.GetInt64(5)),
                         Distance = reader.GetFloat(6),
                         Hash = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
-                        History = reader.IsDBNull(8) ? string.Empty : reader.GetString(8)
+                        History = reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+                        Family = reader.IsDBNull(9) ? string.Empty : reader.GetString(9)
                     };
 
                     return img;
@@ -654,7 +662,8 @@ public partial class Images : IDisposable
                 sb.Append($"{AppConsts.AttributeLastCheck},");
                 sb.Append($"{AppConsts.AttributeDistance},");
                 sb.Append($"{AppConsts.AttributeVector},");
-                sb.Append($"{AppConsts.AttributeHistory}");
+                sb.Append($"{AppConsts.AttributeHistory},");
+                sb.Append($"{AppConsts.AttributeFamily}");
                 sb.Append(") VALUES (");
                 sb.Append($"@{AppConsts.AttributeHash},");
                 sb.Append($"@{AppConsts.AttributeRotateMode},");
@@ -665,7 +674,8 @@ public partial class Images : IDisposable
                 sb.Append($"@{AppConsts.AttributeLastCheck},");
                 sb.Append($"@{AppConsts.AttributeDistance},");
                 sb.Append($"@{AppConsts.AttributeVector},");
-                sb.Append($"@{AppConsts.AttributeHistory}");
+                sb.Append($"@{AppConsts.AttributeHistory},");
+                sb.Append($"@{AppConsts.AttributeFamily}");
                 sb.Append(')');
                 sqlCommand.CommandText = sb.ToString();
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
@@ -678,6 +688,7 @@ public partial class Images : IDisposable
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", Helper.ArrayFromFloat(vector));
                 sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHistory}", img.History);
+                sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", img.Family);
                 sqlCommand.ExecuteNonQuery();
             }
         }
@@ -751,60 +762,38 @@ public partial class Images : IDisposable
     public string? GetX()
     {
         lock (_lock) {
-            var sb = new StringBuilder();
-            
-            sb.Append("SELECT ");
-            sb.Append($"  LENGTH({AppConsts.AttributeHistory}) as hist_len, ");
-            sb.Append($"  COUNT(*) as cnt ");
-            sb.Append($"FROM {AppConsts.TableImages} ");
-            sb.Append($"GROUP BY hist_len ");
-            sb.Append($"ORDER BY hist_len;");
+            string? familyx = null;
 
-            var histGroups = new List<(int histLen, int count)>();
-            using (var cmd = new SqliteCommand(sb.ToString(), _sqlConnection)) {
-                using (var reader = cmd.ExecuteReader()) {
-                    while (reader.Read()) {
-                        histGroups.Add((reader.GetInt32(0), reader.GetInt32(1)));
-                    }
+            using (var cmd = _sqlConnection.CreateCommand()) {
+                cmd.CommandText = $"SELECT {AppConsts.AttributeFamily} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFamily} > @lastFamily ORDER BY {AppConsts.AttributeFamily} LIMIT 1;";
+                cmd.Parameters.AddWithValue("@lastFamily", _lastFamily);
+                using var reader = cmd.ExecuteReader();
+                if (reader.HasRows && reader.Read()) {
+                    familyx = reader.GetString(0);
                 }
             }
 
-            if (histGroups.Count == 0) {
+            if (string.IsNullOrEmpty(familyx)) {
+                using var cmd = _sqlConnection.CreateCommand();
+                cmd.CommandText = $"SELECT {AppConsts.AttributeFamily} FROM {AppConsts.TableImages} ORDER BY {AppConsts.AttributeFamily} LIMIT 1;";
+                using var reader = cmd.ExecuteReader();
+                if (reader.HasRows && reader.Read()) {
+                    familyx = reader.GetString(0);
+                }
+            }
+
+            if (string.IsNullOrEmpty(familyx)) {
                 return null;
             }
 
-            var selectedHistLen = -1;
-            do {
-                selectedHistLen = histGroups[^1].histLen;
-                for (var i = 0; i < histGroups.Count; i++) {
-                    if (i == histGroups.Count - 1 || Random.Shared.Next(10) > 0) {
-                        selectedHistLen = histGroups[i].histLen;
-                        break;
-                    }
-                }
-            } while (selectedHistLen == -1);
-            
-            var imode = Random.Shared.Next(21);
-            string smode = imode switch {
-                0 => $"{AppConsts.AttributeDistance} LIMIT 1",
-                1 => $"{AppConsts.AttributeLastCheck} DESC LIMIT 1",
-                2 => $"{AppConsts.AttributeLastView} DESC LIMIT 1000 OFFSET 1000",
-                3 or 4 or 5 or 6 => $"LENGTH({AppConsts.AttributeHistory}), {AppConsts.AttributeLastView} DESC LIMIT 1",
-                _ => $"LENGTH({AppConsts.AttributeHistory}), {AppConsts.AttributeScore}, {AppConsts.AttributeDistance} LIMIT 1",
-            };
-
-            sb.Clear();
-            sb.Append($"SELECT {AppConsts.AttributeHash} ");
-            sb.Append($"FROM {AppConsts.TableImages} ");
-            sb.Append($"ORDER BY {smode}");
-
-
-            using (var cmd = new SqliteCommand(sb.ToString(), _sqlConnection)) {
-                cmd.Parameters.AddWithValue("@histLen", selectedHistLen);
-                using (var reader = cmd.ExecuteReader()) {
-                    if (reader.HasRows && reader.Read()) {
-                        return reader.GetString(0);
-                    }
+            using (var cmd = _sqlConnection.CreateCommand()) {
+                cmd.CommandText = $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFamily} = @family ORDER BY {AppConsts.AttributeLastView} LIMIT 1;";
+                cmd.Parameters.AddWithValue("@family", familyx);
+                using var reader = cmd.ExecuteReader();
+                if (reader.HasRows && reader.Read()) {
+                    _lastFamily = familyx;
+                    UpdateLastFamilyInDatabase(_lastFamily);
+                    return reader.GetString(0);
                 }
             }
 
@@ -1147,6 +1136,14 @@ public partial class Images : IDisposable
             history = Helper.HistoryToString(hs);
             UpdateImgInDatabase(hashY, AppConsts.AttributeHistory, history);
 
+            if (imgX.Value.Family.Length == 0) {
+                UpdateImgInDatabase(hashX, AppConsts.AttributeFamily, imgX.Value.Hash);
+            }
+
+            if (imgY.Value.Family.Length == 0) {
+                UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, imgX.Value.Hash);
+            }
+
             progress?.Report($"Calculating{AppConsts.CharEllipsis}");
             var message = GetNext(hashX);
             progress?.Report(message);
@@ -1185,6 +1182,93 @@ public partial class Images : IDisposable
         }
 
         progress?.Report(message);
+    }
+    
+    public void FamilyRemove()
+    {
+        var hashX = _imgPanels[0]!.Value.Hash;
+        var imgX = GetImgFromDatabase(hashX);
+        var hashY = _imgPanels[1]!.Value.Hash;
+        var imgY = GetImgFromDatabase(hashY);
+
+        if (imgX != null && imgY != null) {
+            if (!imgX.Value.Family.Equals(imgX.Value.Hash, StringComparison.Ordinal)) {
+                UpdateImgInDatabase(hashX, AppConsts.AttributeFamily, imgX.Value.Hash);
+            }
+
+            if (!imgY.Value.Family.Equals(imgY.Value.Hash, StringComparison.Ordinal)) {
+                UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, imgY.Value.Hash);
+            }
+        }
+    }
+
+    public void FamilyAdd()
+    {
+        var hashX = _imgPanels[0]!.Value.Hash;
+        var imgX = GetImgFromDatabase(hashX);
+        var hashY = _imgPanels[1]!.Value.Hash;
+        var imgY = GetImgFromDatabase(hashY);
+
+        if (imgX != null && imgY != null) {
+            string newFamily;
+            var fx = imgX.Value.Family;
+            var sx = GetFamilySize(fx);
+            var fy = imgY.Value.Family;
+            var sy = GetFamilySize(fy);
+            if (sx > sy) {
+                newFamily = fx;
+            }
+            else if (sy > sx) {
+                newFamily = fy;
+            }
+            else {
+                newFamily = string.Compare(fx, fy, StringComparison.Ordinal) < 0 ? fx : fy;
+            }
+
+            if (!fx.Equals(newFamily, StringComparison.Ordinal)) {
+                UpdateImgInDatabase(hashX, AppConsts.AttributeFamily, newFamily);
+                var updatedImg = GetImgFromDatabase(hashX);
+                if (updatedImg != null) {
+                    var panel = _imgPanels[0]!.Value;
+                    _imgPanels[0] = new Panel {
+                        Hash = panel.Hash,
+                        Img = updatedImg.Value,
+                        Size = panel.Size,
+                        Image = panel.Image,
+                        Extension = panel.Extension,
+                        Taken = panel.Taken
+                    };
+                }
+            }
+
+            if (!fy.Equals(newFamily, StringComparison.Ordinal)) {
+                UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, newFamily);
+                var updatedImg = GetImgFromDatabase(hashY);
+                if (updatedImg != null) {
+                    var panel = _imgPanels[1]!.Value;
+                    _imgPanels[1] = new Panel {
+                        Hash = panel.Hash,
+                        Img = updatedImg.Value,
+                        Size = panel.Size,
+                        Image = panel.Image,
+                        Extension = panel.Extension,
+                        Taken = panel.Taken
+                    };
+                }
+            }
+        }
+    }
+
+    public int GetFamilySize(string family)
+    {
+        lock (_lock) {
+            using var sqlCommand = _sqlConnection.CreateCommand();
+            sqlCommand.CommandText =
+                $"SELECT COUNT(*) FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFamily} = @family";
+            sqlCommand.Parameters.AddWithValue("@family", family);
+            var count = Convert.ToInt32(sqlCommand.ExecuteScalar());
+            return count;
+        }
     }
 
     public static string Export(string hashE)
@@ -1285,7 +1369,8 @@ public partial class Images : IDisposable
                                 LastCheck = new DateTime(1980, 1, 1),
                                 Next = string.Empty,
                                 Distance = 1f,
-                                History = string.Empty
+                                History = string.Empty,
+                                Family = hash
                             };
 
                             AddImgToDatabase(imgnew, vector);
@@ -1368,7 +1453,7 @@ public partial class Images : IDisposable
                     _capacityVectors = 0;
                     _sqlConnection?.Dispose();
                     _session?.Dispose();
-                    _sessionOptions?.Dispose();                    
+                    _sessionOptions?.Dispose();
 
                     while (_inputDataPool.TryDequeue(out _)) { }
                     while (_vectorPool.TryDequeue(out _)) { }

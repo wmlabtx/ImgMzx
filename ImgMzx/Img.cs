@@ -13,4 +13,5 @@ public struct Img
     public string Next;
     public float Distance;
     public string History;
+    public string Family;
 }

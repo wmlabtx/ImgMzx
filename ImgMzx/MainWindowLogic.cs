@@ -158,26 +158,34 @@ public sealed partial class MainWindow
 
         for (var index = 0; index < 2; index++) {
             pBoxes[index].Source = AppBitmap.GetImageSource(panels[index]!.Value.Image);
-            var sb = new StringBuilder();
-            sb.Append($"{panels[index]!.Value.Hash[..4]}.{panels[index]!.Value.Extension}");
+            var ix = panels[index]!.Value;
+            var iy = panels[1 - index]!.Value;
 
-            if (panels[index]!.Value.Img.History.Length > 0) {
-                var size = panels[index]!.Value.Img.History.Length / AppConsts.HashLength;
+            var sb = new StringBuilder();
+            sb.Append($"{ix.Hash[..4]}.{ix.Extension}");
+
+            if (ix.Img.History.Length > 0) {
+                var size = ix.Img.History.Length / AppConsts.HashLength;
                 sb.Append($" [{size}]");
             }
 
-            if (panels[index]!.Value.Img.Score > 0) {
-                sb.Append($" *{panels[index]!.Value.Img.Score}");
+            if (ix.Img.Score > 0) {
+                sb.Append($" *{ix.Img.Score}");
+            }
+
+            var fs = _images.GetFamilySize(ix.Img.Family);
+            if (fs > 1) {
+                sb.Append($" [{ix.Img.Family[..4]}:{fs}]");
             }
 
             sb.AppendLine();
 
-            sb.Append($"{Helper.SizeToString(panels[index]!.Value.Size)} ");
-            sb.Append($" ({panels[index]!.Value.Image.Width}x{panels[index]!.Value.Image.Height})");
+            sb.Append($"{Helper.SizeToString(ix.Size)} ");
+            sb.Append($" ({ix.Image.Width}x{ix.Image.Height})");
             sb.AppendLine();
 
-            sb.Append($" {Helper.TimeIntervalToString(DateTime.Now.Subtract(panels[index]!.Value.Img.LastView))} ago ");
-            var dateTime = panels[index]!.Value.Taken;
+            sb.Append($" {Helper.TimeIntervalToString(DateTime.Now.Subtract(ix.Img.LastView))} ago ");
+            var dateTime = ix.Taken;
             if (dateTime != null) {
                 sb.Append($" [{dateTime.Value.ToShortDateString()}]");
             }
@@ -187,10 +195,13 @@ public sealed partial class MainWindow
 
             pLabels[index].Text = sb.ToString();
             pLabels[index].Background = System.Windows.Media.Brushes.White;
-            if (panels[index]!.Value.Img.History.Length == 0 && panels[index]!.Value.Img.Score == 0) {
+            if (ix.Img.History.Length == 0 && ix.Img.Score == 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
             }
-            else if (panels[index]!.Value.Img.History.Length == 0) {
+            else if (ix.Img.Family.Equals(iy.Img.Family)) {
+                pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
+            }
+            else if (ix.Img.History.Length == 0 && ix.Img.Score > 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.LightYellow;
             }
         }
@@ -294,51 +305,20 @@ public sealed partial class MainWindow
         EnableElements();
     }
 
-    private static void FamilySetClick(string family)
+    private void FamilyAddClick()
     {
-        /*
         DisableElements();
-        var imgX = AppPanels.GetPanel(0)!.Img;
-        imgX.SetFamily(family);
+        _images.FamilyAdd();
         DrawCanvas();
         EnableElements();
-        */
     }
 
-    private static void FamilyAddClick()
+    private void FamilyRemoveClick()
     {
-        /*
         DisableElements();
-        var imgX = AppPanels.GetPanel(0)!.Img;
-        var imgY = AppPanels.GetPanel(1)!.Img;
-        if (imgX.Id > 0 && imgY.Id == 0) {
-            imgY.SetId(imgX.Id);
-        }
-        else if (imgX.Id > 0 && imgY.Id > 0) {
-            var id = Math.Min(imgX.Id, imgY.Id);
-            imgX.SetId(id);
-            imgY.SetId(id);
-        }
-
+        _images.FamilyRemove();
         DrawCanvas();
         EnableElements();
-        */
-    }
-
-    private static void FamilyRemoveClick()
-    {
-        /*
-        DisableElements();
-        var imgX = AppPanels.GetPanel(0)!.Img;
-        var imgY = AppPanels.GetPanel(1)!.Img;
-        if (imgX.Id != imgY.Id) {
-            imgX.SetId(0);
-            imgY.SetId(0);
-        }
-
-        DrawCanvas();
-        EnableElements();
-        */
     }
 
     private void OnKeyDown(Key key)

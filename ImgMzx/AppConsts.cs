@@ -1,6 +1,4 @@
-﻿using System.Dynamic;
-
-namespace ImgMzx;
+﻿namespace ImgMzx;
 
 public static class AppConsts
 {
@@ -41,4 +39,8 @@ public static class AppConsts
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
+
+    public const string TableNodes = "nodes";
+    public const string AttributeNode = "node";
+    public const string AttributeName = "name";
 }
