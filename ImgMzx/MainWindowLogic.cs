@@ -173,9 +173,9 @@ public sealed partial class MainWindow
                 sb.Append($" *{ix.Img.Score}");
             }
 
-            var fs = _images.GetFamilySize(ix.Img.Family);
-            if (fs > 1) {
-                sb.Append($" [{ix.Img.Family[..4]}:{fs}]");
+            if (ix.Img.Family > 0) {
+                var fsize = _images.GetFamilySizeFromDatabase(ix.Img.Family);
+                sb.Append($" [{ix.Img.Family}:{fsize}]");
             }
 
             sb.AppendLine();
@@ -198,11 +198,14 @@ public sealed partial class MainWindow
             if (ix.Img.History.Length == 0 && ix.Img.Score == 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
             }
-            else if (ix.Img.Family.Equals(iy.Img.Family)) {
-                pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
-            }
-            else if (ix.Img.History.Length == 0 && ix.Img.Score > 0) {
-                pLabels[index].Background = System.Windows.Media.Brushes.LightYellow;
+
+            if (ix.Img.Family > 0) {
+                if (ix.Img.Family == iy.Img.Family) {
+                    pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
+                }
+                else {
+                    pLabels[index].Background = System.Windows.Media.Brushes.YellowGreen;
+                }
             }
         }
 
@@ -326,7 +329,7 @@ public sealed partial class MainWindow
         switch (key) {
             case Key.V:
                 ToggleXorClick();
-                break; 
+                break;
             case Key.A:
                 FamilyAddClick();
                 break;

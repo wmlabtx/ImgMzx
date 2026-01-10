@@ -40,7 +40,8 @@ public static class AppConsts
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
 
-    public const string TableNodes = "nodes";
-    public const string AttributeNode = "node";
-    public const string AttributeName = "name";
+    public const string TableLabs = "labs";
+    public const string AttributeL = "l";
+    public const string AttributeA = "a";
+    public const string AttributeB = "b";
 }

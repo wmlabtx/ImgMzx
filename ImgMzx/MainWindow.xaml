@@ -27,7 +27,6 @@
                 <MenuItem Header="Flip None" Tag="0" Click="FlipClick" />
                 <MenuItem Header="Flip Horizontal" Tag="1" Click="FlipClick" />
                 <MenuItem Header="Flip Vertical" Tag="2" Click="FlipClick" />
-                <Separator  />
             </MenuItem>
             <MenuItem Header="Family">
                 <MenuItem Header="Add (A)" Click="FamilyAddClick" />
