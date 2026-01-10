@@ -28,6 +28,9 @@ public partial class Images : IDisposable
     private readonly SqliteConnection _sqlConnection = new();
     private readonly Panel?[] _imgPanels = { null, null };
 
+    private const int RecentCapacity = 16;
+    private readonly List<int> _recent = new();
+
     private bool disposedValue;
 
     private int _maxImages;

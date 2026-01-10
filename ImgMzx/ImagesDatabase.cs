@@ -385,20 +385,103 @@ public partial class Images : IDisposable
 
     public string? GetX()
     {
-        var imode = Random.Shared.Next(30);
-        if (imode < 1) {
-            return GetXLastHashFromDatabase();
+        if (_recent.Count == 0) {
+            var hashX = GetXMinLastView();
+            if (hashX == null) {
+                return null;
+            }
+
+            lock (_lock) {
+                if (!_hashToIndex.TryGetValue(hashX, out var indexX)) {
+                    return null;
+                }
+
+                _recent.Add(indexX);
+            }
         }
 
-        if (imode < 2) {
-            return GetXMinDistance();
+        int minScore;
+        int minHistLen;
+        lock (_lock) {
+            using var cmdMin = _sqlConnection.CreateCommand();
+            cmdMin.CommandText = $@"
+                SELECT MIN({AppConsts.AttributeScore}), MIN(LENGTH({AppConsts.AttributeHistory}))
+                FROM {AppConsts.TableImages};";
+            using var readerMin = cmdMin.ExecuteReader();
+            if (!readerMin.HasRows || !readerMin.Read()) {
+                return null;
+            }
+            minScore = readerMin.IsDBNull(0) ? 0 : readerMin.GetInt32(0);
+            minHistLen = readerMin.IsDBNull(1) ? 0 : readerMin.GetInt32(1);
         }
 
-        if (imode < 3) {
-            return GetXMinLastView(); ;
+        // Get all hashes with min score and min history length
+        var candidates = new List<int>();
+        lock (_lock) {
+            using var cmdCandidates = _sqlConnection.CreateCommand();
+            cmdCandidates.CommandText = $@"
+                SELECT {AppConsts.AttributeHash}
+                FROM {AppConsts.TableImages}
+                WHERE {AppConsts.AttributeScore} = @score 
+                AND LENGTH({AppConsts.AttributeHistory}) = @histLen;";
+            cmdCandidates.Parameters.AddWithValue("@score", minScore);
+            cmdCandidates.Parameters.AddWithValue("@histLen", minHistLen);
+            using var readerCandidates = cmdCandidates.ExecuteReader();
+            while (readerCandidates.Read()) {
+                var hash = readerCandidates.GetString(0);
+                if (_hashToIndex.TryGetValue(hash, out var index)) {
+                    candidates.Add(index);
+                }
+            }
         }
 
-        return GetXMinFamily();
+        if (candidates.Count == 0) {
+            return null;
+        }
+
+        // Find candidate with maximum minimum distance to _recent (parallel)
+        int bestIndex = -1;
+        float bestMinDist = -1f;
+        var lockObj = new object();
+
+        lock (_lock) {
+            var recentIndices = _recent.ToArray();
+            var recentVectors = new float[recentIndices.Length][];
+            for (int i = 0; i < recentIndices.Length; i++) {
+                recentVectors[i] = GetVectorSpan(recentIndices[i]).ToArray();
+            }
+
+            Parallel.ForEach(candidates, candidateIndex => {
+                var candidateVector = GetVectorSpan(candidateIndex);
+                float minDistToRecent = float.MaxValue;
+
+                foreach (var recentVector in recentVectors) {
+                    var dist = ComputeDistance(candidateVector, recentVector);
+                    if (dist < minDistToRecent) {
+                        minDistToRecent = dist;
+                    }
+                }
+
+                lock (lockObj) {
+                    if (minDistToRecent > bestMinDist) {
+                        bestMinDist = minDistToRecent;
+                        bestIndex = candidateIndex;
+                    }
+                }
+            });
+
+            if (bestIndex < 0) {
+                return null;
+            }
+
+            // Add to _recent, maintain capacity
+            _recent.Add(bestIndex);
+            if (_recent.Count > RecentCapacity) {
+                _recent.RemoveAt(0);
+            }
+
+            return _hashes[bestIndex];
+        }
     }
 
     public int GetAvailableFamilyFromDatabase()
