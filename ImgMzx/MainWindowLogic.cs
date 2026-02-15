@@ -53,7 +53,7 @@ public sealed partial class MainWindow
 
         _progress = new Progress<string>(message => Status.Text = message);
 
-        await Task.Run(() => { _images.LoadVectorsFromDatabase(_progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Load(_progress); }).ConfigureAwait(true);
         await Task.Run(() => { _images.Find(null, _progress); }).ConfigureAwait(true);
 
         DrawCanvas();
@@ -173,11 +173,6 @@ public sealed partial class MainWindow
                 sb.Append($" *{ix.Img.Score}");
             }
 
-            if (ix.Img.Family > 0) {
-                var fsize = _images.GetFamilySizeFromDatabase(ix.Img.Family);
-                sb.Append($" [{ix.Img.Family}:{fsize}]");
-            }
-
             sb.AppendLine();
 
             sb.Append($"{Helper.SizeToString(ix.Size)} ");
@@ -198,15 +193,6 @@ public sealed partial class MainWindow
             if (ix.Img.History.Length == 0 && ix.Img.Score == 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
             }
-
-            if (ix.Img.Family > 0) {
-                if (ix.Img.Family == iy.Img.Family) {
-                    pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
-                }
-                else {
-                    pLabels[index].Background = System.Windows.Media.Brushes.YellowGreen;
-                }
-            }
         }
 
         RedrawCanvas();
@@ -218,6 +204,10 @@ public sealed partial class MainWindow
         var hs = new double[2];
         for (var index = 0; index < 2; index++) {
             var panel = _images.GetPanel(index);
+            if (!panel.HasValue) {
+                return;
+            }
+
             ws[index] = panel!.Value.Image.Width;
             hs[index] = panel.Value.Image.Height;
         }
@@ -311,7 +301,7 @@ public sealed partial class MainWindow
     private void FamilyAddClick()
     {
         DisableElements();
-        _images.FamilyAdd();
+        //_images.FamilyAdd();
         DrawCanvas();
         EnableElements();
     }
@@ -319,7 +309,7 @@ public sealed partial class MainWindow
     private void FamilyRemoveClick()
     {
         DisableElements();
-        _images.FamilyRemove();
+        //_images.FamilyRemove();
         DrawCanvas();
         EnableElements();
     }

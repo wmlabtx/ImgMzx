@@ -6,7 +6,9 @@ public static class AppConsts
     public const string MexExtension = "mex";
 
     public const string FileDatabase = @"D:\Users\Murad\Spacer\spacer.db";
-    public const string FileVit = @"D:\Users\Murad\Spacer\dinov2-base.onnx";
+
+    // https://huggingface.co/onnx-community/dinov3-vitl16-pretrain-lvd1689m-ONNX/
+    public const string FileVit = @"D:\Users\Murad\Spacer\model.onnx";
 
     public const string PathHp = @"D:\Users\Murad\Spacer\chunks";
     public const string PathDeleted = @"D:\Users\Murad\Spacer\deleted";
@@ -16,6 +18,7 @@ public static class AppConsts
 
     public const int MaxImportFiles = 100;
     public const int HashLength = 16;
+    public const int VectorSize = 1024;
 
     public const char CharEllipsis = '\u2026';
     public const char CharRightArrow = '\u2192';
@@ -35,13 +38,7 @@ public static class AppConsts
     public const string AttributeNext = "next";
     public const string AttributeDistance = "distance";
     public const string AttributeHistory = "history";
-    public const string AttributeFamily = "family";
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
-
-    public const string TableLabs = "labs";
-    public const string AttributeL = "l";
-    public const string AttributeA = "a";
-    public const string AttributeB = "b";
 }

@@ -64,7 +64,7 @@ public class AppCryptoTest
             
             // Assert
             Assert.IsNotNull(decryptedImage);
-            Assert.AreEqual(imageSize, decryptedImage.Length);
+            Assert.HasCount(imageSize, decryptedImage);
             Assert.IsTrue(originalImage.AsSpan().SequenceEqual(decryptedImage));
             
             var encryptThroughput = (imageSize / 1024.0 / 1024.0) / (encryptStopwatch.ElapsedMilliseconds / 1000.0);
@@ -80,10 +80,10 @@ public class AppCryptoTest
             Console.WriteLine($"   File size:       {fileSize / 1024 / 1024:F1} MB");
             Console.WriteLine($"   Overhead:        {overhead:F2}%");
             
-            Assert.IsTrue(encryptThroughput > 25, 
-                $"Stream encryption too slow: {encryptThroughput:F1} MB/s (expected > 25 MB/s)");
-            Assert.IsTrue(decryptThroughput > 25, 
-                $"Stream decryption too slow: {decryptThroughput:F1} MB/s (expected > 25 MB/s)");
+            Assert.IsGreaterThan(25,
+encryptThroughput, $"Stream encryption too slow: {encryptThroughput:F1} MB/s (expected > 25 MB/s)");
+            Assert.IsGreaterThan(25,
+decryptThroughput, $"Stream decryption too slow: {decryptThroughput:F1} MB/s (expected > 25 MB/s)");
             
             Console.WriteLine("? Stream processing performance optimal");
         }
@@ -206,7 +206,7 @@ public class AppCryptoTest
             
             // Assert
             Assert.IsNotNull(decrypted);
-            Assert.AreEqual(0, decrypted.Length);
+            Assert.IsEmpty(decrypted);
             
             Console.WriteLine($"?? Empty Data Stream Test:");
             Console.WriteLine($"   File size: {new FileInfo(tempFile).Length} bytes");
@@ -252,7 +252,7 @@ public class AppCryptoTest
             
             // Assert
             Assert.IsNotNull(decrypted);
-            Assert.AreEqual(largeDataSize, decrypted.Length);
+            Assert.HasCount(largeDataSize, decrypted);
             
             // Verify data integrity (check first and last chunks)
             Assert.IsTrue(largeData.AsSpan(0, 1024).SequenceEqual(decrypted.AsSpan(0, 1024)), 
@@ -271,10 +271,10 @@ public class AppCryptoTest
             Console.WriteLine($"   Decrypt speed:   {decryptThroughput:F1} MB/s");
             Console.WriteLine($"   File size:       {fileSize / 1024 / 1024:F1} MB");
             
-            Assert.IsTrue(encryptThroughput > 50, 
-                $"Large stream encryption too slow: {encryptThroughput:F1} MB/s (expected > 50 MB/s)");
-            Assert.IsTrue(decryptThroughput > 50, 
-                $"Large stream decryption too slow: {decryptThroughput:F1} MB/s (expected > 50 MB/s)");
+            Assert.IsGreaterThan(50,
+encryptThroughput, $"Large stream encryption too slow: {encryptThroughput:F1} MB/s (expected > 50 MB/s)");
+            Assert.IsGreaterThan(50,
+decryptThroughput, $"Large stream decryption too slow: {decryptThroughput:F1} MB/s (expected > 50 MB/s)");
             
             Console.WriteLine("? Large stream processing performance optimal");
         }
@@ -373,8 +373,8 @@ public class AppCryptoTest
         Console.WriteLine($"   Decrypt time:    {decryptStopwatch.ElapsedMilliseconds:N0}ms");
         Console.WriteLine($"   Decrypt speed:   {decryptThroughput:F1} MB/s");
         
-        Assert.IsTrue(encryptThroughput > 25, 
-            $"Batch encryption too slow: {encryptThroughput:F1} MB/s (expected > 25 MB/s)");
+        Assert.IsGreaterThan(25,
+    encryptThroughput, $"Batch encryption too slow: {encryptThroughput:F1} MB/s (expected > 25 MB/s)");
         
         Console.WriteLine("? Batch processing performance optimal");
     }
@@ -436,7 +436,7 @@ public class AppCryptoTest
         // Verify optimization goals
         Assert.IsNotNull(decrypted);
         Assert.IsTrue(imageData.AsSpan().SequenceEqual(decrypted));
-        Assert.IsTrue(throughputMBps > 25, "Should achieve reasonable throughput for images");
+        Assert.IsGreaterThan(25, throughputMBps, "Should achieve reasonable throughput for images");
         
         Console.WriteLine("?? AppCrypto optimized for high-performance image encryption!");
         Console.WriteLine(new string('=', 65));

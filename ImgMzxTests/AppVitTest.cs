@@ -3,22 +3,22 @@ using ImgMzx;
 
 namespace ImgMzxTests;
 
-/*
 [TestClass]
 public class AppVitTest
 {
     private static readonly StringBuilder sb = new();
+    private readonly Vit _vit = new(AppConsts.FileVit);
 
-    private static void GetVector(
+    private void GetVector(
         string basename, float[] basevector, string name, out float[]? vector)
     {
         var data = AppFile.ReadFile($@"{AppContext.BaseDirectory}images\{name}.jpg");
         Assert.IsNotNull(data);
         using var image = AppBitmap.GetImage(data, SixLabors.ImageSharp.Processing.RotateMode.None, SixLabors.ImageSharp.Processing.FlipMode.None);
         Assert.IsNotNull(image);
-        vector = AppVit.GetVector(image);
+        vector = _vit.CalculateVector(image);
         Assert.IsNotNull(vector);
-        var vdistance = AppVit.GetDistance(basevector, vector);
+        var vdistance = Vit.ComputeDistance(basevector, vector);
         sb.AppendLine($"{basename}-{name} = v{vdistance:F4}");
     }
 
@@ -30,7 +30,8 @@ public class AppVitTest
         Assert.IsNotNull(data);
         using var image = AppBitmap.GetImage(data, SixLabors.ImageSharp.Processing.RotateMode.None, SixLabors.ImageSharp.Processing.FlipMode.None);
         Assert.IsNotNull(image);
-        var basevector = AppVit.GetVector(image);
+
+        var basevector = _vit.CalculateVector(image);
         Assert.IsNotNull(basevector);
 
         GetVector(basename, basevector, "gab_blur", out var v_blur);
@@ -46,7 +47,6 @@ public class AppVitTest
         GetVector(basename, basevector, "gab_r90", out var v_r90);
         GetVector(basename, basevector, "gab_toside", out var v_toside);
         GetVector(basename, basevector, "gab_scale", out var v_scale);
-        GetVector(basename, basevector, "gab_xor", out var v_xor);
         GetVector(basename, basevector, "gab_sim1", out var v_sim1);
         GetVector(basename, basevector, "gab_sim2", out var v_sim2);
         GetVector(basename, basevector, "gab_nosim1", out var v_nosim1);
@@ -56,7 +56,6 @@ public class AppVitTest
         GetVector(basename, basevector, "gab_nosim5", out var v_nosim5);
         GetVector(basename, basevector, "f2-1", out var v_f2_1);
         GetVector(basename, basevector, "exif_nodt", out var v_exif_nodt);
-        GetVector(basename, basevector, "face", out var v_face_lowresolution);
 
         Assert.IsNotNull(v_f2_1);
         GetVector("f2-1", v_f2_1, "f2-2", out var v_f2_2);
@@ -67,18 +66,6 @@ public class AppVitTest
         Assert.IsNotNull(v_dalle1);
         GetVector("dalle1", v_dalle1, "dalle2", out var v_dalle2);
 
-        // Дополнительные проверки для DINOv2
-        sb.AppendLine("\n=== DINOV2 VISION TRANSFORMER RESULTS ===");
-        sb.AppendLine($"Vector size: {basevector.Length}");
-        sb.AppendLine($"Preprocessing:");
-        sb.AppendLine($"  • Resize shortest edge to 256px");
-        sb.AppendLine($"  • Center crop to 224x224");
-        sb.AppendLine($"  • Bicubic resampling");
-        sb.AppendLine($"  • ImageNet normalization (mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])");
-        sb.AppendLine($"  • L2 vector normalization");
-        sb.AppendLine($"Distance metric: Cosine distance (1 - dot product)");
-
         File.WriteAllText($@"{AppContext.BaseDirectory}images\vit_distances.txt", sb.ToString());
     }
 }
-*/

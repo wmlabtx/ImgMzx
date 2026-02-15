@@ -27,11 +27,11 @@ public static class AppFile
         imagedata = File.ReadAllBytes(filename);
         if (string.IsNullOrEmpty(ext) || ext.Equals(AppConsts.MzxExtension, StringComparison.OrdinalIgnoreCase)) {
             var password = Path.GetFileNameWithoutExtension(filename);
-            imagedata = AppEncryption.Decrypt(imagedata, password);
+            imagedata = AppCrypto.DecryptLegacy(imagedata, password);
         }
         else if (ext.Equals(AppConsts.MexExtension, StringComparison.OrdinalIgnoreCase)) {
             var password = Path.GetFileNameWithoutExtension(filename);
-            // файл типа 055444.52j230emdv4ejmi6.mex (шесть цифр + точка + 16 символов), password = последние 16 символов
+            // 055444.52j230emdv4ejmi6.mex
             // Check format: 6digits.16chars
             var match = _mexDeletedFileNameRegex.Match(password);
             if (match.Success) {
@@ -200,37 +200,35 @@ public static class AppFile
         var file = GetFileName(hash: hash, rootpath: rootpath, extension: AppConsts.MexExtension);
         var backup = GetFileName(hash: hash, rootpath: backuppath, extension: AppConsts.MexExtension);
         lock (_lock) {
-            if (!File.Exists(file)) {
-                return null;
-            }
+            if (File.Exists(file)) {
+                byte[]? imagedata;
+                using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read)) {
+                    imagedata = AppCrypto.DecryptFromStream(fs, hash);
+                }
 
-            byte[]? imagedata;
-            using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read)) {
-                imagedata = AppCrypto.DecryptFromStream(fs, hash);
-            }
-
-            if (imagedata != null && imagedata.Length > 16) {
-                var readHash = AppHash.GetHash(imagedata);
-                if (readHash.Equals(hash)) {
-                    return imagedata;
+                if (imagedata != null && imagedata.Length > 16) {
+                    var readHash = AppHash.GetHash(imagedata);
+                    if (readHash.Equals(hash)) {
+                        return imagedata;
+                    }
                 }
             }
 
-            if (!File.Exists(backup)) {
-                return null;
-            }
+            if (File.Exists(backup)) {
+                byte[]? imagedata;
+                using (var fs = new FileStream(backup, FileMode.Open, FileAccess.Read)) {
+                    imagedata = AppCrypto.DecryptFromStream(fs, hash);
+                }
 
-            using (var fs = new FileStream(backup, FileMode.Open, FileAccess.Read)) {
-                imagedata = AppCrypto.DecryptFromStream(fs, hash);
-            }
-
-            if (imagedata != null && imagedata.Length > 16) {
-                var readHash = AppHash.GetHash(imagedata);
-                if (readHash.Equals(hash)) {
-                    File.Copy(backup, file, overwrite: true);
-                    return imagedata;
+                if (imagedata != null && imagedata.Length > 16) {
+                    var readHash = AppHash.GetHash(imagedata);
+                    if (readHash.Equals(hash)) {
+                        File.Copy(backup, file, overwrite: true);
+                        return imagedata;
+                    }
                 }
             }
+
 
             return null;
         }

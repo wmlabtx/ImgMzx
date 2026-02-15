@@ -1,7 +1,5 @@
 ﻿using SixLabors.ImageSharp.Processing;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace ImgMzx;
 
@@ -11,7 +9,7 @@ public partial class Images : IDisposable
     {
         var orgname = Path.GetFileNameWithoutExtension(orgfilename);
         var hashByName = orgname.ToLowerInvariant();
-        if (AppHash.IsValidHash(hashByName) && ContainsImgInDatabase(hashByName)) {
+        if (AppHash.IsValidHash(hashByName) && ContainsImg(hashByName)) {
             var imagedata = AppFile.ReadMex(hashByName);
             if (imagedata == null) {
                 var orgimagedata = AppFile.ReadFile(orgfilename);
@@ -38,7 +36,7 @@ public partial class Images : IDisposable
             }
             else {
                 var hash = AppHash.GetHash(orgimagedata);
-                if (ContainsImgInDatabase(hash)) {
+                if (ContainsImg(hash)) {
                     AppFile.MoveToRecycleBin(orgfilename);
                     found++;
                 }
@@ -49,7 +47,7 @@ public partial class Images : IDisposable
                         bad++;
                     }
                     else {
-                        var vector = CalculateVector(image);
+                        var vector = _vit.CalculateVector(image);
                         if (vector == null) {
                             AppFile.MoveToRecycleBin(orgfilename);
                             bad++;
@@ -57,6 +55,7 @@ public partial class Images : IDisposable
                         else {
                             var imgnew = new Img {
                                 Hash = hash,
+                                Vector = vector,
                                 RotateMode = RotateMode.None,
                                 FlipMode = FlipMode.None,
                                 LastView = lastview,
@@ -67,9 +66,9 @@ public partial class Images : IDisposable
                                 History = string.Empty
                             };
 
-                            AddImgToDatabase(imgnew, vector);
+                            _imgs.TryAdd(hash, imgnew);
+                            _database.AddImgToDatabase(imgnew);
                             AppFile.WriteMex(hash, orgimagedata);
-                            AddVector(hash, vector);
                             AppFile.MoveToRecycleBin(orgfilename);
                             added++;
                             var message = GetNext(hash);
@@ -105,8 +104,8 @@ public partial class Images : IDisposable
     public void Import(IProgress<string>? progress)
     {
         _maxImages -= 100;
-        UpdateMaxImagesInDatabase(_maxImages);
-        var lastview = GetLastViewFromDatabase() ?? DateTime.Now;
+        _database.UpdateMaxImagesInDatabase(_maxImages);
+        var lastview = GetLastView();
         var added = 0;
         var found = 0;
         var bad = 0;
@@ -125,66 +124,4 @@ public partial class Images : IDisposable
         Helper.CleanupDirectories(AppConsts.PathRawProtected, progress);
         progress?.Report($"Imported a:{added}/f:{found}/b:{bad}");
     }
-
-    /*
-    private static readonly byte[] _saltBytes = { 0xFF, 0x15, 0x20, 0xD5, 0x24, 0x1E, 0x12, 0xAA, 0xCC, 0xFF };
-    private const int Iterations = 1000;
-
-    public static byte[]? DecryptDat(byte[] bytesToBeDecrypted, string password)
-    {
-        if (bytesToBeDecrypted == null || password == null) {
-            return null;
-        }
-
-        byte[]? decryptedBytes = null;
-
-        try {
-            using (var ms = new MemoryStream())
-            using (var aes = new RijndaelManaged()) {
-                aes.KeySize = 256;
-                aes.BlockSize = 128;
-                var passwordBytes = Encoding.ASCII.GetBytes(password);
-                using (var key = new Rfc2898DeriveBytes(passwordBytes, _saltBytes, Iterations)) {
-                    aes.Key = key.GetBytes(aes.KeySize / 8);
-                    aes.IV = key.GetBytes(aes.BlockSize / 8);
-                    aes.Mode = CipherMode.CBC;
-                    using (var cs = new CryptoStream(ms, aes.CreateDecryptor(), CryptoStreamMode.Write)) {
-                        cs.Write(bytesToBeDecrypted, 0, bytesToBeDecrypted.Length);
-                        cs.Flush();
-                    }
-
-                    decryptedBytes = ms.ToArray();
-                }
-            }
-        }
-        catch (CryptographicException) {
-        }
-
-        return decryptedBytes;
-    }
-
-    public void Import(IProgress<string>? progress)
-    {
-        var added = 0;
-        var found = 0;
-        var bad = 0;
-
-
-        var directoryInfo = new DirectoryInfo("M:\\temp\\cinematic");
-        var fs = directoryInfo.GetFiles("*.*", SearchOption.TopDirectoryOnly).ToArray();
-        foreach (var e in fs) {
-            var orgfilename = e.FullName;
-            var orgname = Path.GetFileNameWithoutExtension(orgfilename);
-            var imagedata = File.ReadAllBytes(orgfilename);
-            var decrypted = DecryptDat(imagedata, orgname);
-            var newfilename = Path.ChangeExtension(orgfilename, ".mkv");
-            File.WriteAllBytes(newfilename, decrypted ?? imagedata);
-            progress?.Report(orgname);
-        }
-
-        progress?.Report("Done");
-
-
-    }
-    */
 }

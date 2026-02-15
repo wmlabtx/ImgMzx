@@ -1,9 +1,9 @@
 ﻿using System.Diagnostics;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
 using SixLabors.ImageSharp.Processing;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
+using MenuItem = System.Windows.Controls.MenuItem;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 
 namespace ImgMzx

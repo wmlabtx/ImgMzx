@@ -1,97 +1,173 @@
-﻿using Microsoft.Data.Sqlite;
-using Microsoft.ML.OnnxRuntime;
-using SixLabors.ImageSharp.Processing;
-using System.Buffers;
+﻿using SixLabors.ImageSharp.Processing;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
 
 namespace ImgMzx;
 
-public partial class Images : IDisposable
+public partial class Images(string filedatabase, string filevit) : IDisposable
 {
-    private const int VectorSize = 768;
-    private const int InitialCapacity = 200_000;
-    private const int ImageSize = 224;
-    private const int ChannelSize = ImageSize * ImageSize;
-    private const int InputDataSize = 3 * ChannelSize;
-
-    private readonly InferenceSession _session;
-    private readonly SessionOptions? _sessionOptions;
-    
-    private readonly ConcurrentQueue<float[]> _inputDataPool = new();
-    private readonly ConcurrentQueue<float[]> _vectorPool = new();
-    private readonly ConcurrentQueue<List<NamedOnnxValue>> _containerPool = new();
-
-    private readonly object _lock = new();
-    private readonly ConcurrentDictionary<string, int> _hashToIndex;
-    private readonly SqliteConnection _sqlConnection = new();
-    private readonly Panel?[] _imgPanels = { null, null };
-
-    private const int RecentCapacity = 16;
-    private readonly List<int> _recent = new();
-
+    private readonly Lock _lock = new();
     private bool disposedValue;
 
-    private int _maxImages;
-    private string _lastHash;
-    private Memory<float> _vectors;
-    private IMemoryOwner<float> _vectorsOwner;
-    private string[] _hashes;
-    private int _countVectors;
-    private int _capacityVectors;
+    private ConcurrentDictionary<string, Img> _imgs = new();
+    private readonly Database _database = new(filedatabase);
+    private readonly Vit _vit = new(filevit);
+    private readonly Panel?[] _imgPanels = { null, null };
+    private readonly List<float[]> _recentVectors = [];
 
     public bool ShowXOR;
 
-    public int MaxImages => _maxImages;
+    private int _maxImages;
 
-    public Images(string filedatabase, string filevit)
+    public void Load(IProgress<string>? progress) { 
+        (_imgs, _maxImages) = _database.Load(progress);
+    }
+
+    public int GetCount()
     {
-        _sessionOptions = new SessionOptions {
-            LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR,
-            EnableCpuMemArena = true,
-            EnableMemoryPattern = true,
-            ExecutionMode = ExecutionMode.ORT_PARALLEL,
-            InterOpNumThreads = Environment.ProcessorCount,
-            IntraOpNumThreads = Environment.ProcessorCount,
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
-        };
-
-        _sessionOptions.AppendExecutionProvider_CPU();
-        _session = new InferenceSession(filevit, _sessionOptions);
-
-        _capacityVectors = InitialCapacity;
-        _hashToIndex = new ConcurrentDictionary<string, int>(Environment.ProcessorCount, _capacityVectors, StringComparer.Ordinal);
-        _vectorsOwner = MemoryPool<float>.Shared.Rent(_capacityVectors * VectorSize);
-        _vectors = _vectorsOwner.Memory[..(_capacityVectors * VectorSize)];
-        _hashes = new string[_capacityVectors];
-        _countVectors = 0;
-
-        var connectionString = $"Data Source={filedatabase};";
-        _sqlConnection = new SqliteConnection(connectionString);
-        _sqlConnection.Open();
-
-        using (var pragmaCommand = _sqlConnection.CreateCommand()) {
-            pragmaCommand.CommandText = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY;";
-            pragmaCommand.ExecuteNonQuery();
+        lock (_lock) {
+            return _imgs.Count;
         }
+    }
 
-        _maxImages = InitialCapacity;
-        _lastHash = string.Empty;
-        var sb = new StringBuilder();
-        sb.Append("SELECT ");
-        sb.Append($"{AppConsts.AttributeMaxImages},");
-        sb.Append($"{AppConsts.AttributeHash}");
-        sb.Append($" FROM {AppConsts.TableVars};");
-        using (var sqlCommand = new SqliteCommand(sb.ToString(), _sqlConnection))
-        using (var reader = sqlCommand.ExecuteReader()) {
-            if (reader.HasRows) {
-                while (reader.Read()) {
-                    _maxImages = reader.GetInt32(0);
-                    _lastHash = reader.GetString(1);
-                    break;
+    public bool ContainsImg(string hash)
+    {
+        lock (_lock) {
+            return _imgs.ContainsKey(hash);
+        }
+    }
+
+    public Img GetImg(string hash)
+    {
+        lock (_lock) {
+            return _imgs[hash];
+        }
+    }
+
+    public void UpdateImg(Img img)
+    {
+        lock (_lock) {
+            _imgs[img.Hash] = img;
+            _database.UpdateImgInDatabase(img);
+        }
+    }
+
+    public void DeleteImg(string hash)
+    {
+        lock (_lock) {
+            _imgs.Remove(hash, out _);
+            _database.DeleteImgInDatabase(hash);
+            AppFile.DeleteMex(hash, DateTime.Now);
+        }
+    }  
+
+    public string GetHashLastCheck()
+    {
+        lock (_lock) {
+            var scope = _imgs.Values.Where(img => img.Vector.Length != AppConsts.VectorSize).ToArray();
+            if (scope.Length > 0) {
+                return scope.First().Hash;
+            }
+
+            foreach (var img in _imgs.Values) {
+                if (!_imgs.ContainsKey(img.Next)) {
+                    return img.Hash;
                 }
             }
+
+            return _imgs.Values.OrderBy(img => img.LastCheck).First().Hash;
+        }
+    }
+
+    public string? GetX()
+    {
+        lock (_lock) {
+            var minlv = _imgs.Min(img => img.Value.LastView);
+            var lv = minlv.AddDays(365);
+            var s = _imgs.Values.Where(img => img.LastView <= lv).ToArray();
+            var rindex = Random.Shared.Next(s.Length);
+            return s[rindex].Hash;
+
+            /*
+            if (_recentVectors.Count == 0) { 
+                _recentVectors.AddRange(_imgs.Values.OrderByDescending(img => img.LastView).Take(1000).Select(img => img.Vector));
+            }
+            */
+
+            /*
+            var minHistoryLength = _imgs.Min(img => img.Value.History.Length);
+            var s =  _imgs.Values.Where(img => img.History.Length == minHistoryLength).ToList();
+            var minScore = s.Min(img => img.Score);
+            s = s.Where(img => img.Score == minScore).ToList();
+
+            if (s.Count < 3) { 
+                return s.First().Hash;
+            }
+
+            // давай рассмотрим несколько зон:
+            // 1) перцентиль малых значений img.Distance
+            // 2) перцентиль больших значений img.Distance
+            // 3) перцентиль малых значений img.LastView
+            // соберем их вместе и выберем случайно из них
+
+            var percentileSize = Math.Max(1, s.Count / 100);  // 1%
+
+            // 1) малые Distance - потенциальные дубликаты
+            var lowDistance = s.OrderBy(img => img.Distance)
+                               .Take(percentileSize)
+                               .ToList();
+
+            // 2) большие Distance - выбросы/уникальные
+            var highDistance = s.OrderByDescending(img => img.Distance)
+                                .Take(percentileSize)
+                                .ToList();
+
+            // 3) давно не просмотренные
+            var oldLastView = s.OrderBy(img => img.LastView)
+                               .Take(percentileSize)
+                               .ToList();
+
+            // объединяем без дубликатов
+            var candidates = lowDistance
+                .Concat(highDistance)
+                .Concat(oldLastView)
+                .DistinctBy(img => img.Hash)
+                .ToList();
+
+            // выбираем случайно
+            var rindex = Random.Shared.Next(candidates.Count);
+            return candidates[rindex].Hash;
+            */
+
+            /*
+            var bestHash = string.Empty;
+            var bestProximity = 0f;
+            var dt = DateTime.Now;
+            while (s.Count > 0 && (DateTime.Now - dt).TotalSeconds < 1.0) {
+                var rindex = Random.Shared.Next(s.Count);
+                var img = s[rindex];
+                var distances = new float[_recentVectors.Count];
+                var localVector = img.Vector;
+                Parallel.For(0, _recentVectors.Count, i => {
+                    distances[i] = Vit.ComputeDistance(localVector, _recentVectors[i]);
+                });
+                var proximity = distances.Min();
+                if (proximity > bestProximity) {
+                    bestProximity = proximity;
+                    bestHash = img.Hash;
+                }
+
+                s.RemoveAt(rindex);
+            }
+            */
+        }
+    }
+
+    public DateTime GetLastView()
+    {
+        lock (_lock) {
+            return _imgs.Min(img => img.Value.LastView);
         }
     }
 
@@ -100,17 +176,31 @@ public partial class Images : IDisposable
         return (id == 0 || id == 1) ? _imgPanels[id] : null;
     }
 
-    public (string Hash, float Distance)[] GetBeam(ReadOnlySpan<float> query)
+    private string GetNearGroup()
     {
         lock (_lock) {
-            var results = new (string Hash, float Distance)[_countVectors];
+            var minLen = _imgs.Min(img => img.Value.History.Length) / AppConsts.HashLength;
+            var minScore = _imgs
+                .Where(img => img.Value.History.Length == minLen * AppConsts.HashLength)
+                .Min(img => img.Value.Score);
+            var groupLen = _imgs
+                .Where(img => img.Value.History.Length == minLen * AppConsts.HashLength && img.Value.Score == minScore)
+                .Count();
+            return $"{minLen}:{minScore}:{groupLen}";
+        }
+    }
+
+    public (Img img, float Distance)[] GetBeam(ReadOnlySpan<float> query)
+    {
+        lock (_lock) {
+            var results = new (Img img, float Distance)[_imgs.Count];
             var localquery = query.ToArray();
-            Parallel.For(0, _countVectors, i => {
-                var hash = _hashes[i];
-                var index = _hashToIndex[hash];
-                var vector = GetVectorSpan(index);
-                var distance = ComputeDistance(localquery, vector);
-                results[i] = (hash, distance);
+            var localarray = _imgs.Values.ToArray();
+            Parallel.For(0, _imgs.Count, i => {
+                var img = localarray[i];
+                var vector = img.Vector;
+                var distance = Vit.ComputeDistance(localquery, vector);
+                results[i] = (img, distance);
             });
 
             Array.Sort(results, (a, b) => a.Distance.CompareTo(b.Distance));
@@ -120,175 +210,188 @@ public partial class Images : IDisposable
 
     public string GetNext(string hash, string? hashD = null)
     {
-        string message;
+        var sb = new StringBuilder();
+        var totalimages = GetCount();
+        var nearGroup = GetNearGroup();
+        var diff = totalimages - _maxImages;
+        sb.Append($"{nearGroup}/{totalimages} ({diff}) ");
 
-        var img = GetImgFromDatabase(hash);
-        if (img == null) {
+        if (!ContainsImg(hash)) {
             return "image not found";
         }
 
-        var hs = Helper.HistoryFromString(img.Value.History);
+        var img = GetImg(hash);
+
+        var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
+        sb.Append($"[{lastcheck} ago] ");
+
+        var hs = Helper.HistoryFromString(img.History);
         var hsnew = new HashSet<string>(StringComparer.Ordinal);
         foreach (var h in hs) {
-            if (ContainsImgInDatabase(h)) {
+            if (ContainsImg(h)) {
                 hsnew.Add(h);
             }
         }
 
         if (hs.Count != hsnew.Count) {
-            var history = Helper.HistoryToString(hsnew);
-            UpdateImgInDatabase(hash, AppConsts.AttributeHistory, history);
-            img = GetImgFromDatabase(hash);
-            if (img == null) {
-                return "image not found";
-            }
-
-            hsnew.Clear();
-            hs.Clear();
-            hs = Helper.HistoryFromString(img.Value.History);
+            img.History = Helper.HistoryToString(hsnew);
         }
 
-        var oldNext = img.Value.Next;
+        var oldNext = img.Next;
         if (string.IsNullOrEmpty(oldNext)) {
             oldNext = "XXXX";
         }
 
         if (!string.IsNullOrEmpty(hashD)) {
-            DeleteImgInDatabase(hashD);
-            AppFile.DeleteMex(hashD, DateTime.Now);
+            DeleteImg(hashD);
         }
 
         lock (_lock) {
-            if (!_hashToIndex.TryGetValue(hash, out var index)) {
-                return "image not found";
-            }
-
-            var vector = GetVectorSpan(index);
-            var next = oldNext;
-            var distance = 1f;
-
-            var beam = GetBeam(vector);
-            for (var i = 0; i < beam.Length; i++) {
-                if (beam[i].Hash.Equals(hash)) {
-                    continue;
-                }
-
-                if (!ContainsImgInDatabase(beam[i].Hash)) {
-                    continue;
-                }
-
-                if (hs.Contains(beam[i].Hash)) {
-                    continue;
-                }
-
-                var imgNext = GetImgFromDatabase(beam[i].Hash);
-                if (imgNext == null) {
-                    continue;
-                }
-
-                if (img.Value.Family > 0) {
-                    if (img.Value.Family == imgNext.Value.Family) {
-                        continue;
+            if (img.Vector.Length != AppConsts.VectorSize) {
+                var imagedata = AppFile.ReadMex(hash);
+                if (imagedata != null) {
+                    using var image = AppBitmap.GetImage(imagedata);
+                    if (image != null) {
+                        var vector = _vit.CalculateVector(image);
+                        if (vector != null) {
+                            img.Vector = vector;
+                            _database.UpdateImgInDatabase(img);
+                        }
                     }
                 }
- 
-                next = beam[i].Hash;
+                else {
+                    DeleteImg(hash);
+                    return string.Empty;
+                }
+            }
+
+            var next = oldNext;
+            var distance = 1f;
+            var beam = GetBeam(img.Vector);
+            for (var i = 0; i < beam.Length; i++) {
+                if (beam[i].img.Hash.Equals(hash)) {
+                    continue;
+                }
+
+                if (hsnew.Contains(beam[i].img.Hash)) {
+                    continue;
+                }
+
+                next = beam[i].img.Hash;
                 distance = beam[i].Distance;
+                i++;
                 break;
             }
+
+            var middle = beam.Length / 2;
+            var proximity = beam
+                .Where(e => !e.img.Hash.Equals(hash))
+                .OrderByDescending(e => e.img.LastView)
+                .Take(middle)
+                .Select(e => e.Distance)
+                .Min();
 
             if (string.IsNullOrEmpty(next)) {
                 return "no suitable next image found";
             }
 
-            if (!oldNext.Equals(next) || Math.Abs(img.Value.Distance - distance) >= 0.0001f) {
-                message = $"s{img.Value.Score} {oldNext[..4]}{AppConsts.CharEllipsis} {img.Value.Distance:F4} {AppConsts.CharRightArrow} {next[..4]}{AppConsts.CharEllipsis} {distance:F4}";
-                UpdateImgInDatabase(hash, AppConsts.AttributeNext, next);
-                UpdateImgInDatabase(hash, AppConsts.AttributeDistance, distance);
-            }
-            else {
-                message = $"{distance:F4}";
+            if (
+                !oldNext.Equals(next) ||
+                Math.Abs(img.Distance - distance) >= 0.0001f) {
+                
+                if (!oldNext.Equals(next)) {
+                    img.Next = next;
+                }
+
+                if (Math.Abs(img.Distance - distance) >= 0.0001f) {
+                    sb.Append($"{img.Distance:F4} {AppConsts.CharRightArrow} {distance:F4} ");
+                    img.Distance = distance;
+                }
             }
 
-            UpdateImgInDatabase(hash, AppConsts.AttributeLastCheck, DateTime.Now.Ticks);
-            return message;
+            img.LastCheck = DateTime.Now;
+            UpdateImg(img);
+            return sb.ToString();
         }
     }
 
     public void Find(string? hashX, IProgress<string>? progress)
     {
         for (var i = 0; i < 10; i++) {
-            var hashToCheck = GetLastCheckFromDatabase();
+            var hashToCheck = GetHashLastCheck();
             if (hashToCheck == null) {
                  progress?.Report("nothing to show");
                 return;
             }
 
-            var imgToCheck = GetImgFromDatabase(hashToCheck);
-            if (imgToCheck != null) {
-                var message = GetNext(hashToCheck);
-                var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgToCheck.Value.LastCheck));
-                progress?.Report($"[{lastcheck} ago] {hashToCheck[..4]}{AppConsts.CharEllipsis}: {message}");
+            var imgToCheck = GetImg(hashToCheck);
+            var message = GetNext(hashToCheck);
+            if (string.IsNullOrEmpty(message)) {
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(message)) {
+                DeleteImg(hashToCheck);
+                continue;
+            }
+
+            if (message.Contains(AppConsts.CharRightArrow)) {
+                progress?.Report(message);
             }
         }
 
-        var sb = new StringBuilder();
         do {
-            sb.Clear();
-            var totalimages = GetCountFromDatabase();
-            var nearGroup = GetNearGroupFromDatabase();
-            var diff = totalimages - _maxImages;
-            sb.Append($"{nearGroup}/{totalimages} ({diff}) ");
-
             if (string.IsNullOrEmpty(hashX)) {
                 hashX = GetX();
                 if (string.IsNullOrEmpty(hashX)) {
-                    var totalcount = GetCountFromDatabase();
+                    var totalcount = GetCount();
                     progress?.Report($"totalcount = {totalcount}");
                     return;
                 }
             }
 
             if (!SetLeftPanel(hashX)) {
-                DeleteImgInDatabase(hashX);
-                AppFile.DeleteMex(hashX, DateTime.Now);
+                DeleteImg(hashX);
                 hashX = null;
                 continue;
             }
 
-            var imgX = GetImgFromDatabase(hashX);
-            if (imgX == null) {
-                DeleteImgInDatabase(hashX);
-                AppFile.DeleteMex(hashX, DateTime.Now);
-                hashX = null;
-                continue;
-            }
-
-            var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgX.Value.LastCheck));
-            sb.Append($"[{lastcheck} ago] {hashX[..4]}: ");
-
-            var hashY = imgX.Value.Next;
+            var imgX = GetImg(hashX);
+            var hashY = imgX.Next;
             if (!SetRightPanel(hashY)) {
+                DeleteImg(hashY);
+                hashY = null;
                 var message = GetNext(hashX);
-                sb.Append(message);
-                imgX = GetImgFromDatabase(hashX);
-                if (imgX == null) {
-                    DeleteImgInDatabase(hashX);
-                    AppFile.DeleteMex(hashX, DateTime.Now);
-                    hashX = null;
-                    continue;
-                }
-
-                hashY = imgX.Value.Next;
+                progress?.Report(message);
+                imgX = GetImg(hashX);
+                hashY = imgX.Next;
                 if (!SetRightPanel(hashY)) {
                     hashX = null;
                     continue;
                 }
             }
-            else {
-                sb.Append($"= {imgX.Value.Distance:F4}");
+
+            var imgY = GetImg(hashY);
+            lock (_lock) {
+                _recentVectors.Add(imgX.Vector);
+                if (_recentVectors.Count > 1000) {
+                    _recentVectors.RemoveAt(0);
+                }
+
+                _recentVectors.Add(imgY.Vector);
+                if (_recentVectors.Count > 1000) {
+                    _recentVectors.RemoveAt(0);
+                }
             }
 
+            var sb = new StringBuilder();
+            var totalimages = GetCount();
+            var nearGroup = GetNearGroup();
+            var diff = totalimages - _maxImages;
+            sb.Append($"{nearGroup}/{totalimages} ({diff}) ");
+            var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgX.LastCheck));
+            sb.Append($"[{lastcheck} ago] ");
+            sb.Append($"{imgX.Distance:F4} ");
             progress?.Report(sb.ToString());
             break;
         }
@@ -303,34 +406,29 @@ public partial class Images : IDisposable
     public void Confirm(IProgress<string>? progress)
     {
         var hashX = _imgPanels[0]!.Value.Hash;
-        var imgX = GetImgFromDatabase(hashX);
+        var imgX = GetImg(hashX);
         var hashY = _imgPanels[1]!.Value.Hash;
-        var imgY = GetImgFromDatabase(hashY);
+        var imgY = GetImg(hashY);
 
-        if (imgX != null && imgY != null) {
-            UpdateImgInDatabase(hashX, AppConsts.AttributeScore, imgX.Value.Score + 1);
-            UpdateImgInDatabase(hashY, AppConsts.AttributeScore, imgY.Value.Score + 1);
-            UpdateImgInDatabase(hashX, AppConsts.AttributeLastView, DateTime.Now.Ticks);
-            UpdateImgInDatabase(hashY, AppConsts.AttributeLastView, DateTime.Now.Ticks);
-            UpdateImgInDatabase(hashX, AppConsts.AttributeLastCheck, DateTime.MinValue.Ticks);
-            UpdateImgInDatabase(hashY, AppConsts.AttributeLastCheck, DateTime.MinValue.Ticks);
+        progress?.Report($"Calculating{AppConsts.CharEllipsis}");
 
-            var hs = Helper.HistoryFromString(imgX.Value.History);
-            hs.Add(hashY);
-            var history = Helper.HistoryToString(hs);
-            UpdateImgInDatabase(hashX, AppConsts.AttributeHistory, history);
+        imgX.Score = imgX.Score + 1;
+        imgX.LastView = DateTime.Now;
+        var hs = Helper.HistoryFromString(imgX.History);
+        hs.Add(hashY);
+        imgX.History = Helper.HistoryToString(hs);
+        UpdateImg(imgX);
+        var message = GetNext(hashX);
+        progress?.Report(message);
 
-            hs = Helper.HistoryFromString(imgY.Value.History);
-            hs.Add(hashX);
-            history = Helper.HistoryToString(hs);
-            UpdateImgInDatabase(hashY, AppConsts.AttributeHistory, history);
-
-            progress?.Report($"Calculating{AppConsts.CharEllipsis}");
-            var message = GetNext(hashX);
-            progress?.Report(message);
-            message = GetNext(hashY);
-            progress?.Report(message);
-        }
+        imgY.Score = imgY.Score + 1;
+        imgY.LastView = DateTime.Now;
+        hs = Helper.HistoryFromString(imgY.History);
+        hs.Add(hashX);
+        imgY.History = Helper.HistoryToString(hs);
+        UpdateImg(imgY);
+        message = GetNext(hashY);
+        progress?.Report(message);
     }
 
     public void DeleteLeft(IProgress<string>? progress)
@@ -338,14 +436,14 @@ public partial class Images : IDisposable
         progress?.Report($"Calculating{AppConsts.CharEllipsis}");
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
-        var message = GetNext(hashY, hashX);
-        var imgY = GetImgFromDatabase(hashY);
-        if (imgY != null) {
-            UpdateImgInDatabase(hashY, AppConsts.AttributeScore, imgY.Value.Score + 1);
-            UpdateImgInDatabase(hashY, AppConsts.AttributeLastView, DateTime.Now.Ticks);
-            UpdateImgInDatabase(hashY, AppConsts.AttributeLastCheck, DateTime.MinValue.Ticks);
-        }
 
+        DeleteImg(hashX);
+
+        var imgY = GetImg(hashY);
+        imgY.Score = imgY.Score + 1;
+        imgY.LastView = DateTime.Now;
+        UpdateImg(imgY);
+        var message = GetNext(hashY, hashX);
         progress?.Report(message);
     }
 
@@ -354,14 +452,15 @@ public partial class Images : IDisposable
         progress?.Report($"Calculating{AppConsts.CharEllipsis}");
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
-        var message = GetNext(hashX, hashY);
-        var imgX = GetImgFromDatabase(hashX);
-        if (imgX != null) {
-            UpdateImgInDatabase(hashX, AppConsts.AttributeScore, imgX.Value.Score + 1);
-            UpdateImgInDatabase(hashX, AppConsts.AttributeLastView, DateTime.Now.Ticks);
-            UpdateImgInDatabase(hashX, AppConsts.AttributeLastCheck, DateTime.MinValue.Ticks);
-        }
 
+        DeleteImg(hashY);
+
+
+        var imgX = GetImg(hashX);
+        imgX.Score = imgX.Score + 1;
+        imgX.LastView = DateTime.Now;
+        UpdateImg(imgX);
+        var message = GetNext(hashX, hashY);
         progress?.Report(message);
     }
 
@@ -400,10 +499,12 @@ public partial class Images : IDisposable
             return;
         }
 
-        var rvector = CalculateVector(image);
-        ChangeVector(hash, rvector);
-        UpdateImgInDatabase(hash, AppConsts.AttributeRotateMode, (int)rotatemode);
-        UpdateImgInDatabase(hash, AppConsts.AttributeFlipMode, (int)flipmode);
+        var rvector = _vit.CalculateVector(image);
+        var img = GetImg(hash);
+        img.Vector = rvector;
+        img.RotateMode = rotatemode;
+        img.FlipMode = flipmode;
+        UpdateImg(img);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -418,19 +519,6 @@ public partial class Images : IDisposable
                     if (_imgPanels[1]?.Image != null) {
                         _imgPanels[1]?.Image.Dispose();
                     }
-
-                    _vectorsOwner?.Dispose();
-                    _hashToIndex.Clear();
-                    Array.Clear(_hashes);
-                    _countVectors = 0;
-                    _capacityVectors = 0;
-                    _sqlConnection?.Dispose();
-                    _session?.Dispose();
-                    _sessionOptions?.Dispose();
-
-                    while (_inputDataPool.TryDequeue(out _)) { }
-                    while (_vectorPool.TryDequeue(out _)) { }
-                    while (_containerPool.TryDequeue(out _)) { }
                 }
             }
 

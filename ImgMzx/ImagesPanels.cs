@@ -20,7 +20,7 @@ public partial class Images : IDisposable
         extension = "xxx";
         taken = null;
 
-        if (!AppHash.IsValidHash(hash) || !ContainsImgInDatabase(hash)) {
+        if (!AppHash.IsValidHash(hash) || !ContainsImg(hash)) {
             return false;
         }
 
@@ -30,7 +30,7 @@ public partial class Images : IDisposable
         }
 
         extension = AppBitmap.GetExtension(imagedata);
-        img = GetImgFromDatabase(hash);
+        img = GetImg(hash);
         if (img == null) {
             return false;
         }

@@ -1,75 +1,97 @@
 ﻿using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
-using System.Buffers;
+using SixLabors.ImageSharp.PixelFormats;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Rectangle = SixLabors.ImageSharp.Rectangle;
+using Size = SixLabors.ImageSharp.Size;
 
 namespace ImgMzx;
 
-public partial class Images : IDisposable
+public class Vit: IDisposable
 {
-    public float[] CalculateVector(Image<Rgb24> image)
+    private readonly InferenceSession _session;
+    private readonly SessionOptions? _sessionOptions;
+
+    private readonly Lock _lock = new();
+
+    private bool disposedValue;
+
+    public Vit(string filevit)
     {
-        var inputData = _inputDataPool.TryDequeue(out var pooledInputData) && pooledInputData.Length == InputDataSize
-            ? pooledInputData
-            : new float[InputDataSize];
-
-        var vectorData = _vectorPool.TryDequeue(out var pooledVector) && pooledVector.Length == VectorSize
-            ? pooledVector
-            : new float[VectorSize];
-
-        var container = _containerPool.TryDequeue(out var pooledContainer)
-            ? pooledContainer
-            : new List<NamedOnnxValue>(1);
-
-        container.Clear();
+        _sessionOptions = new SessionOptions {
+            LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR,
+            EnableCpuMemArena = true,
+            EnableMemoryPattern = true,
+            ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
+            InterOpNumThreads = Environment.ProcessorCount,
+            IntraOpNumThreads = Environment.ProcessorCount,
+            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
+        };
 
         try {
-            ProcessImageOptimized(image, inputData);
-
-            var tensor = new DenseTensor<float>(inputData.AsMemory(0, InputDataSize), new int[] { 1, 3, ImageSize, ImageSize });
-            container.Add(NamedOnnxValue.CreateFromTensor("pixel_values", tensor));
-
-            using var results = _session.Run(container);
-            var outputTensor = results[0].AsTensor<float>() ?? throw new InvalidOperationException("Model output is null");
-            ExtractVectorOptimized(outputTensor, vectorData);
-            NormalizeVectorSIMD(vectorData.AsSpan(0, VectorSize));
-
-            var result = new float[VectorSize];
-            Array.Copy(vectorData, result, VectorSize);
-            return result;
+            _sessionOptions.AppendExecutionProvider_CUDA(0);
         }
-        finally {
-            if (inputData.Length == InputDataSize && _inputDataPool.Count < 8) {
-                Array.Clear(inputData);
-                _inputDataPool.Enqueue(inputData);
-            }
-
-            if (vectorData.Length == VectorSize && _vectorPool.Count < 8) {
-                Array.Clear(vectorData);
-                _vectorPool.Enqueue(vectorData);
-            }
-
-            if (_containerPool.Count < 8) {
-                container.Clear();
-                _containerPool.Enqueue(container);
-            }
+        catch (Exception) {
+            _sessionOptions.AppendExecutionProvider_CPU();
         }
+
+        _session = new InferenceSession(filevit, _sessionOptions);
+    }
+
+    public float[] CalculateVector(Image<Rgb24> image)
+    {
+        const int TargetSize = 512;
+        float[] inputData;
+        int inputDataSize;
+        float scale = Math.Max((float)TargetSize / image.Width, (float)TargetSize / image.Height);
+        int scaledWidth = (int)Math.Round(image.Width * scale);
+        int scaledHeight = (int)Math.Round(image.Height * scale);
+        using var processedImage = image.Clone(ctx => ctx
+            .Resize(new ResizeOptions {
+                Size = new Size(scaledWidth, scaledHeight),
+                Mode = ResizeMode.Max
+            })
+            .Crop(new Rectangle(
+                (scaledWidth - TargetSize) / 2,
+                (scaledHeight - TargetSize) / 2,
+                TargetSize,
+                TargetSize))
+        );
+
+        inputDataSize = 3 * TargetSize * TargetSize;
+        inputData = new float[inputDataSize];
+        ProcessImageOptimized(processedImage, inputData, TargetSize, TargetSize);
+
+        var dimensions = new[] { 1, 3, TargetSize, TargetSize };
+        var tensor = new DenseTensor<float>(inputData, dimensions);
+        var container = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor("pixel_values", tensor) };
+
+        using var results = _session.Run(container);
+        var outputTensor = results[0].AsTensor<float>() ?? throw new InvalidOperationException("Model output is null");
+
+        var vectorData = new float[AppConsts.VectorSize];
+        ExtractVectorOptimized(outputTensor, vectorData);
+        NormalizeVectorSIMD(vectorData.AsSpan(0, AppConsts.VectorSize));
+
+        var result = new float[AppConsts.VectorSize];
+        Array.Copy(vectorData, result, AppConsts.VectorSize);
+        return result;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ProcessImageOptimized(Image<Rgb24> image, float[] inputData)
+    private static void ProcessImageOptimized(Image<Rgb24> image, float[] inputData, int targetWidth, int targetHeight)
     {
-        using var resizedImage = image.Clone(ctx => ctx.Resize(ImageSize, ImageSize));
-        var pixelData = new Rgb24[ImageSize * ImageSize];
+        using var resizedImage = image.Clone(ctx => ctx.Resize(targetWidth, targetHeight));
+        var channelSize = targetWidth * targetHeight;
+        var pixelData = new Rgb24[channelSize];
         resizedImage.ProcessPixelRows(accessor => {
-            for (int y = 0; y < ImageSize; y++) {
+            for (int y = 0; y < targetHeight; y++) {
                 var row = accessor.GetRowSpan(y);
-                row.CopyTo(pixelData.AsSpan(y * ImageSize, ImageSize));
+                row.CopyTo(pixelData.AsSpan(y * targetWidth, targetWidth));
             }
         });
 
@@ -77,9 +99,9 @@ public partial class Images : IDisposable
         const float rMean = 0.485f, gMean = 0.456f, bMean = 0.406f;
         const float rStd = 0.229f, gStd = 0.224f, bStd = 0.225f;
 
-        var rSpan = inputData.AsSpan(0, ChannelSize);
-        var gSpan = inputData.AsSpan(ChannelSize, ChannelSize);
-        var bSpan = inputData.AsSpan(2 * ChannelSize, ChannelSize);
+        var rSpan = inputData.AsSpan(0, channelSize);
+        var gSpan = inputData.AsSpan(channelSize, channelSize);
+        var bSpan = inputData.AsSpan(2 * channelSize, channelSize);
 
         if (Vector.IsHardwareAccelerated && pixelData.Length >= Vector<float>.Count) {
             ProcessPixelsVectorized(pixelData, rSpan, gSpan, bSpan, scale, rMean, gMean, bMean, rStd, gStd, bStd);
@@ -152,22 +174,22 @@ public partial class Images : IDisposable
     private static void ExtractVectorOptimized(Tensor<float> outputTensor, float[] vectorArray)
     {
         var shape = outputTensor.Dimensions.ToArray();
-        var vectorSpan = vectorArray.AsSpan(0, VectorSize);
+        var vectorSpan = vectorArray.AsSpan(0, AppConsts.VectorSize);
 
         if (shape.Length == 3) {
-            var hiddenSize = Math.Min(shape[2], VectorSize);
+            var hiddenSize = Math.Min(shape[2], AppConsts.VectorSize);
             for (var i = 0; i < hiddenSize; i++) {
                 vectorSpan[i] = outputTensor[0, 0, i];
             }
         }
         else if (shape.Length == 2) {
-            var hiddenSize = Math.Min(shape[1], VectorSize);
+            var hiddenSize = Math.Min(shape[1], AppConsts.VectorSize);
             for (var i = 0; i < hiddenSize; i++) {
                 vectorSpan[i] = outputTensor[0, i];
             }
         }
         else {
-            var copyLength = Math.Min(outputTensor.Length, VectorSize);
+            var copyLength = Math.Min(outputTensor.Length, AppConsts.VectorSize);
             for (int i = 0; i < copyLength; i++) {
                 vectorSpan[i] = outputTensor.GetValue(i);
             }
@@ -230,18 +252,6 @@ public partial class Images : IDisposable
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static float CalculateDistance(ReadOnlySpan<float> x, ReadOnlySpan<float> y)
-    {
-        if (x.IsEmpty || y.IsEmpty || x.Length != y.Length)
-            return 1f;
-
-        var dotProduct = ComputeDotProductSIMD(x, y);
-        var distance = 1f - dotProduct;
-
-        return Math.Max(0f, Math.Min(1f, distance));
-    }
-
     public static float CalculateDistance(float[] x, float[] y)
     {
         if (x.Length == 0 || y.Length == 0 || x.Length != y.Length)
@@ -286,112 +296,37 @@ public partial class Images : IDisposable
         return dotProduct;
     }
 
-    public ReadOnlySpan<float> GetVectorSpan(string hash)
+    public static float ComputeDistance(float[] x, float[] y)
     {
-        if (string.IsNullOrEmpty(hash) || !_hashToIndex.TryGetValue(hash, out var index)) {
-            throw new ArgumentException($"Hash '{hash}' not found");
-        }
+        if (x.Length == 0 || y.Length == 0 || x.Length != y.Length)
+            return 1f;
 
-        return GetVectorSpan(index);
-    }
-
-    private ReadOnlySpan<float> GetVectorSpan(int index)
-    {
-        var offset = index * VectorSize;
-        return _vectors.Span.Slice(offset, VectorSize);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private Span<float> GetMutableVectorSpan(int index)
-    {
-        var offset = index * VectorSize;
-        return _vectors.Span.Slice(offset, VectorSize);
-    }
-
-    private void ExpandCapacity()
-    {
-        var newCapacity = _capacityVectors + 1000;
-
-        var newVectorsOwner = MemoryPool<float>.Shared.Rent(newCapacity * VectorSize);
-        var newVectors = newVectorsOwner.Memory[..(newCapacity * VectorSize)];
-        var newHashes = new string[newCapacity];
-
-        _vectors.Span[..(_countVectors * VectorSize)].CopyTo(newVectors.Span);
-        Array.Copy(_hashes, newHashes, _countVectors);
-
-        _vectorsOwner?.Dispose();
-        _vectorsOwner = newVectorsOwner;
-        _vectors = newVectors;
-        _hashes = newHashes;
-        _capacityVectors = newCapacity;
-    }
-
-    public bool AddVector(string hash, float[] vector)
-    {
-        return AddVector(hash, vector.AsSpan());
-    }
-
-    private bool AddVector(string hash, ReadOnlySpan<float> vector)
-    {
-        if (string.IsNullOrEmpty(hash)) {
-            throw new ArgumentNullException(nameof(hash));
-        }
-
-        if (vector.Length != VectorSize) {
-            throw new ArgumentException($"Vector must have exactly {VectorSize} elements", nameof(vector));
-        }
-
-        lock (_lock) {
-            if (_hashToIndex.ContainsKey(hash)) {
-                return false;
-            }
-
-            if (_countVectors >= _capacityVectors) {
-                ExpandCapacity();
-            }
-
-            var index = _countVectors++;
-            _hashes[index] = hash;
-
-            var targetSpan = GetMutableVectorSpan(index);
-            vector.CopyTo(targetSpan);
-
-            _hashToIndex[hash] = index;
-            return true;
-        }
-    }
-
-    public void ChangeVector(string hash, float[] vector)
-    {
-        ChangeVector(hash, vector.AsSpan());
-    }
-
-    private void ChangeVector(string hash, ReadOnlySpan<float> vector)
-    {
-        if (string.IsNullOrEmpty(hash)) {
-            throw new ArgumentNullException(nameof(hash));
-        }
-
-        if (vector.Length != VectorSize) {
-            throw new ArgumentException($"Vector must have exactly {VectorSize} elements", nameof(vector));
-        }
-
-        if (!_hashToIndex.TryGetValue(hash, out var index)) {
-            throw new ArgumentException($"Hash '{hash}' not found");
-        }
-
-        var targetSpan = GetMutableVectorSpan(index);
-        vector.CopyTo(targetSpan);
-    }
-
-    private static float ComputeDistance(ReadOnlySpan<float> x, ReadOnlySpan<float> y)
-    {
         var dotProduct = 0f;
-        for (int i = 0; i < VectorSize; i++) {
+        for (int i = 0; i < AppConsts.VectorSize; i++) {
             dotProduct += x[i] * y[i];
         }
 
         var distance = 1f - dotProduct;
         return Math.Max(0f, Math.Min(1f, distance));
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue) {
+            if (disposing) {
+                lock (_lock) {
+                    _session?.Dispose();
+                    _sessionOptions?.Dispose();
+                }
+            }
+
+            disposedValue = true;
+        }
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }

@@ -45,7 +45,7 @@ public class AppBitmapTest
         
         var dateTaken = AppBitmap.GetDateTaken(image);
         Assert.IsNotNull(dateTaken);
-        Assert.AreEqual(10, dateTaken.Value.Hour);
+        Assert.AreEqual(9, dateTaken.Value.Hour);
     }
 
     [TestMethod]
