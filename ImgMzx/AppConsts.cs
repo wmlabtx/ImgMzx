@@ -6,9 +6,8 @@ public static class AppConsts
     public const string MexExtension = "mex";
 
     public const string FileDatabase = @"D:\Users\Murad\Spacer\spacer.db";
-
-    // https://huggingface.co/onnx-community/dinov3-vitl16-pretrain-lvd1689m-ONNX/
-    public const string FileVit = @"D:\Users\Murad\Spacer\model.onnx";
+    public const string FileVit = @"D:\Users\Murad\Spacer\dinov3_attention.onnx";
+    public const string FileMask = @"D:\Users\Murad\Spacer\mediapipe-selfie-segmentation.onnx";
 
     public const string PathHp = @"D:\Users\Murad\Spacer\chunks";
     public const string PathDeleted = @"D:\Users\Murad\Spacer\deleted";

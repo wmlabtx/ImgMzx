@@ -14,7 +14,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
     private readonly Database _database = new(filedatabase);
     private readonly Vit _vit = new(filevit);
     private readonly Panel?[] _imgPanels = { null, null };
-    private readonly List<float[]> _recentVectors = [];
 
     public bool ShowXOR;
 
@@ -65,11 +64,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
     public string GetHashLastCheck()
     {
         lock (_lock) {
-            var scope = _imgs.Values.Where(img => img.Vector.Length != AppConsts.VectorSize).ToArray();
-            if (scope.Length > 0) {
-                return scope.First().Hash;
-            }
-
             foreach (var img in _imgs.Values) {
                 if (!_imgs.ContainsKey(img.Next)) {
                     return img.Hash;
@@ -88,79 +82,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             var s = _imgs.Values.Where(img => img.LastView <= lv).ToArray();
             var rindex = Random.Shared.Next(s.Length);
             return s[rindex].Hash;
-
-            /*
-            if (_recentVectors.Count == 0) { 
-                _recentVectors.AddRange(_imgs.Values.OrderByDescending(img => img.LastView).Take(1000).Select(img => img.Vector));
-            }
-            */
-
-            /*
-            var minHistoryLength = _imgs.Min(img => img.Value.History.Length);
-            var s =  _imgs.Values.Where(img => img.History.Length == minHistoryLength).ToList();
-            var minScore = s.Min(img => img.Score);
-            s = s.Where(img => img.Score == minScore).ToList();
-
-            if (s.Count < 3) { 
-                return s.First().Hash;
-            }
-
-            // давай рассмотрим несколько зон:
-            // 1) перцентиль малых значений img.Distance
-            // 2) перцентиль больших значений img.Distance
-            // 3) перцентиль малых значений img.LastView
-            // соберем их вместе и выберем случайно из них
-
-            var percentileSize = Math.Max(1, s.Count / 100);  // 1%
-
-            // 1) малые Distance - потенциальные дубликаты
-            var lowDistance = s.OrderBy(img => img.Distance)
-                               .Take(percentileSize)
-                               .ToList();
-
-            // 2) большие Distance - выбросы/уникальные
-            var highDistance = s.OrderByDescending(img => img.Distance)
-                                .Take(percentileSize)
-                                .ToList();
-
-            // 3) давно не просмотренные
-            var oldLastView = s.OrderBy(img => img.LastView)
-                               .Take(percentileSize)
-                               .ToList();
-
-            // объединяем без дубликатов
-            var candidates = lowDistance
-                .Concat(highDistance)
-                .Concat(oldLastView)
-                .DistinctBy(img => img.Hash)
-                .ToList();
-
-            // выбираем случайно
-            var rindex = Random.Shared.Next(candidates.Count);
-            return candidates[rindex].Hash;
-            */
-
-            /*
-            var bestHash = string.Empty;
-            var bestProximity = 0f;
-            var dt = DateTime.Now;
-            while (s.Count > 0 && (DateTime.Now - dt).TotalSeconds < 1.0) {
-                var rindex = Random.Shared.Next(s.Count);
-                var img = s[rindex];
-                var distances = new float[_recentVectors.Count];
-                var localVector = img.Vector;
-                Parallel.For(0, _recentVectors.Count, i => {
-                    distances[i] = Vit.ComputeDistance(localVector, _recentVectors[i]);
-                });
-                var proximity = distances.Min();
-                if (proximity > bestProximity) {
-                    bestProximity = proximity;
-                    bestHash = img.Hash;
-                }
-
-                s.RemoveAt(rindex);
-            }
-            */
         }
     }
 
@@ -247,24 +168,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         }
 
         lock (_lock) {
-            if (img.Vector.Length != AppConsts.VectorSize) {
-                var imagedata = AppFile.ReadMex(hash);
-                if (imagedata != null) {
-                    using var image = AppBitmap.GetImage(imagedata);
-                    if (image != null) {
-                        var vector = _vit.CalculateVector(image);
-                        if (vector != null) {
-                            img.Vector = vector;
-                            _database.UpdateImgInDatabase(img);
-                        }
-                    }
-                }
-                else {
-                    DeleteImg(hash);
-                    return string.Empty;
-                }
-            }
-
             var next = oldNext;
             var distance = 1f;
             var beam = GetBeam(img.Vector);
@@ -357,6 +260,27 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             }
 
             var imgX = GetImg(hashX);
+            if (imgX.Vector.Length != AppConsts.VectorSize) {
+                progress?.Report($"calculating vector{AppConsts.CharEllipsis}");
+                var imagedata = AppFile.ReadMex(hashX);
+                if (imagedata != null) {
+                    using var image = AppBitmap.GetImage(imagedata);
+                    if (image != null) {
+                        var vector = _vit.CalculateVector(image);
+                        if (vector != null) {
+                            imgX.Vector = vector;
+                            UpdateImg(imgX);
+                        }
+                    }
+                }
+                else {
+                    DeleteImg(hashX);
+                    hashX = null;
+                    continue;
+                }
+            }
+
+
             var hashY = imgX.Next;
             if (!SetRightPanel(hashY)) {
                 DeleteImg(hashY);
@@ -372,18 +296,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             }
 
             var imgY = GetImg(hashY);
-            lock (_lock) {
-                _recentVectors.Add(imgX.Vector);
-                if (_recentVectors.Count > 1000) {
-                    _recentVectors.RemoveAt(0);
-                }
-
-                _recentVectors.Add(imgY.Vector);
-                if (_recentVectors.Count > 1000) {
-                    _recentVectors.RemoveAt(0);
-                }
-            }
-
             var sb = new StringBuilder();
             var totalimages = GetCount();
             var nearGroup = GetNearGroup();
