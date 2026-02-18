@@ -1,18 +1,19 @@
 ﻿using SixLabors.ImageSharp.Processing;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Security.Policy;
 using System.Text;
 
 namespace ImgMzx;
 
-public partial class Images(string filedatabase, string filevit) : IDisposable
+public partial class Images(string filedatabase, string filevit, string filemask) : IDisposable
 {
     private readonly Lock _lock = new();
     private bool disposedValue;
 
     private ConcurrentDictionary<string, Img> _imgs = new();
     private readonly Database _database = new(filedatabase);
-    private readonly Vit _vit = new(filevit);
+    private readonly Vit _vit = new(filevit, filemask);
     private readonly Panel?[] _imgPanels = { null, null };
 
     public bool ShowXOR;
@@ -142,7 +143,20 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         }
 
         var img = GetImg(hash);
-
+        if (img.Vector.Length != AppConsts.VectorSize) {
+            var imagedata = AppFile.ReadMex(hash);
+            if (imagedata != null) {
+                using var image = AppBitmap.GetImage(imagedata);
+                if (image != null) {
+                    var vector = _vit.CalculateVector(image);
+                    if (vector != null) {
+                        img.Vector = vector;
+                        UpdateImg(img);
+                    }
+                }
+            }
+        }
+        
         var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
         sb.Append($"[{lastcheck} ago] ");
 
@@ -220,7 +234,7 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
     public void Find(string? hashX, IProgress<string>? progress)
     {
-        for (var i = 0; i < 10; i++) {
+        for (var i = 0; i < 100; i++) {
             var hashToCheck = GetHashLastCheck();
             if (hashToCheck == null) {
                  progress?.Report("nothing to show");
@@ -279,7 +293,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
                     continue;
                 }
             }
-
 
             var hashY = imgX.Next;
             if (!SetRightPanel(hashY)) {

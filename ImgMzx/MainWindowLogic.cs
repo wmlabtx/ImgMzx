@@ -15,7 +15,7 @@ public sealed partial class MainWindow
 
     [SupportedOSPlatform("windows6.1")]
     private readonly NotifyIcon _notifyIcon = new();
-    private readonly Images _images = new(AppConsts.FileDatabase, AppConsts.FileVit);
+    private readonly Images _images = new(AppConsts.FileDatabase, AppConsts.FileVit, AppConsts.FileMask);
     
     private Progress<string>? _progress;
 

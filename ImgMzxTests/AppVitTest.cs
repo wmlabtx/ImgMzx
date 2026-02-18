@@ -7,7 +7,7 @@ namespace ImgMzxTests;
 public class AppVitTest
 {
     private static readonly StringBuilder sb = new();
-    private readonly Vit _vit = new(AppConsts.FileVit);
+    private readonly Vit _vit = new(AppConsts.FileVit, AppConsts.FileMask);
 
     private void CompareVectors(
         string basename, float[] baseVectorAttn, string name)
