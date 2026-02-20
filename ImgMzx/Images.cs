@@ -1,7 +1,8 @@
-﻿using SixLabors.ImageSharp.Processing;
-using System.Collections.Concurrent;
+﻿using Microsoft.Data.Sqlite;
+using SixLabors.ImageSharp.Processing;
+using System.Data;
 using System.IO;
-using System.Security.Policy;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace ImgMzx;
@@ -10,119 +11,78 @@ public partial class Images(string filedatabase, string filevit, string filemask
 {
     private readonly Lock _lock = new();
     private bool disposedValue;
-
-    private ConcurrentDictionary<string, Img> _imgs = new();
-    private readonly Database _database = new(filedatabase);
+    private readonly SqliteConnection _sqlConnection = new();
     private readonly Vit _vit = new(filevit, filemask);
     private readonly Panel?[] _imgPanels = { null, null };
 
     public bool ShowXOR;
+    public Vit Vit => _vit;
 
-    private int _maxImages;
-
-    public void Load(IProgress<string>? progress) { 
-        (_imgs, _maxImages) = _database.Load(progress);
+    public SqliteConnection GetSqliteConnection()
+    {
+        return _sqlConnection;
     }
 
-    public int GetCount()
-    {
+    public void Load(IProgress<string>? progress) {
+        _sqlConnection.ConnectionString = new SqliteConnectionStringBuilder {
+            DataSource = filedatabase,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Shared
+        }.ToString();
+        _sqlConnection.Open();
+        _maxImages = 0;
         lock (_lock) {
-            return _imgs.Count;
+            using var command = new SqliteCommand(
+                $@"SELECT {AppConsts.AttributeMaxImages} FROM {AppConsts.TableVars};",
+                _sqlConnection);
+            using var reader = command.ExecuteReader();
+            if (reader.Read()) {
+                _maxImages = (int)reader.GetInt64(0);
+            }
         }
-    }
 
-    public bool ContainsImg(string hash)
-    {
+        var numVectors = _maxImages + 10000;
+        _vectors = new float[numVectors * AppConsts.VectorSize];
+        var allVectorsBytes = MemoryMarshal.AsBytes(_vectors.AsSpan());
+        var bytesPerVector = AppConsts.VectorSize * sizeof(float);
+        var counter = 0;
         lock (_lock) {
-            return _imgs.ContainsKey(hash);
-        }
-    }
-
-    public Img GetImg(string hash)
-    {
-        lock (_lock) {
-            return _imgs[hash];
-        }
-    }
-
-    public void UpdateImg(Img img)
-    {
-        lock (_lock) {
-            _imgs[img.Hash] = img;
-            _database.UpdateImgInDatabase(img);
-        }
-    }
-
-    public void DeleteImg(string hash)
-    {
-        lock (_lock) {
-            _imgs.Remove(hash, out _);
-            _database.DeleteImgInDatabase(hash);
-            AppFile.DeleteMex(hash, DateTime.Now);
-        }
-    }  
-
-    public string GetHashLastCheck()
-    {
-        lock (_lock) {
-            foreach (var img in _imgs.Values) {
-                if (!_imgs.ContainsKey(img.Next)) {
-                    return img.Hash;
+            using var command = new SqliteCommand(
+                $@"SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeVector} FROM {AppConsts.TableImages};",
+                _sqlConnection);
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
+            var dt = DateTime.Now;
+            while (reader.Read()) {
+                var hash = reader.GetString(0);
+                using var stream = reader.GetStream(1);
+                stream.ReadExactly(allVectorsBytes.Slice(counter * bytesPerVector, bytesPerVector));
+                _hashToIndex[hash] = counter;
+                counter++;
+                if (DateTime.Now.Subtract(dt).TotalMilliseconds >= AppConsts.TimeLapse) {
+                    dt = DateTime.Now;
+                    progress?.Report($"Loaded {counter} vectors{AppConsts.CharEllipsis}");
                 }
             }
-
-            return _imgs.Values.OrderBy(img => img.LastCheck).First().Hash;
         }
+
+        _freeSlots = new Stack<int>(Enumerable.Range(counter, numVectors - counter).Reverse());
+        progress?.Report($"Loaded {counter} vectors");
     }
 
-    public string? GetX()
+    public (string Hash, float Distance)[] GetBeam(ReadOnlySpan<float> query)
     {
         lock (_lock) {
-            var minlv = _imgs.Min(img => img.Value.LastView);
-            var lv = minlv.AddDays(365);
-            var s = _imgs.Values.Where(img => img.LastView <= lv).ToArray();
-            var rindex = Random.Shared.Next(s.Length);
-            return s[rindex].Hash;
-        }
-    }
+            var localQuery = query.ToArray();
+            var hashArray = _hashToIndex.Keys.ToArray();
+            var results = new (string Hash, float Distance)[hashArray.Length];
 
-    public DateTime GetLastView()
-    {
-        lock (_lock) {
-            return _imgs.Min(img => img.Value.LastView);
-        }
-    }
-
-    public Panel? GetPanel(int id)
-    {
-        return (id == 0 || id == 1) ? _imgPanels[id] : null;
-    }
-
-    private string GetNearGroup()
-    {
-        lock (_lock) {
-            var minLen = _imgs.Min(img => img.Value.History.Length) / AppConsts.HashLength;
-            var minScore = _imgs
-                .Where(img => img.Value.History.Length == minLen * AppConsts.HashLength)
-                .Min(img => img.Value.Score);
-            var groupLen = _imgs
-                .Where(img => img.Value.History.Length == minLen * AppConsts.HashLength && img.Value.Score == minScore)
-                .Count();
-            return $"{minLen}:{minScore}:{groupLen}";
-        }
-    }
-
-    public (Img img, float Distance)[] GetBeam(ReadOnlySpan<float> query)
-    {
-        lock (_lock) {
-            var results = new (Img img, float Distance)[_imgs.Count];
-            var localquery = query.ToArray();
-            var localarray = _imgs.Values.ToArray();
-            Parallel.For(0, _imgs.Count, i => {
-                var img = localarray[i];
-                var vector = img.Vector;
-                var distance = Vit.ComputeDistance(localquery, vector);
-                results[i] = (img, distance);
+            Parallel.For(0, hashArray.Length, i =>
+            {
+                var hash = hashArray[i];
+                var slot = _hashToIndex[hash];
+                var vector = _vectors.AsSpan(slot * AppConsts.VectorSize, AppConsts.VectorSize);
+                var distance = Vit.ComputeDistance(localQuery, vector);
+                results[i] = (hash, distance);
             });
 
             Array.Sort(results, (a, b) => a.Distance.CompareTo(b.Distance));
@@ -138,11 +98,11 @@ public partial class Images(string filedatabase, string filevit, string filemask
         var diff = totalimages - _maxImages;
         sb.Append($"{nearGroup}/{totalimages} ({diff}) ");
 
-        if (!ContainsImg(hash)) {
+        var img = GetImgFromDatabase(hash);
+        if (string.IsNullOrEmpty(img.Hash)) {
             return "image not found";
         }
 
-        var img = GetImg(hash);
         if (img.Vector.Length != AppConsts.VectorSize) {
             var imagedata = AppFile.ReadMex(hash);
             if (imagedata != null) {
@@ -151,7 +111,6 @@ public partial class Images(string filedatabase, string filevit, string filemask
                     var vector = _vit.CalculateVector(image);
                     if (vector != null) {
                         img.Vector = vector;
-                        UpdateImg(img);
                     }
                 }
             }
@@ -178,7 +137,7 @@ public partial class Images(string filedatabase, string filevit, string filemask
         }
 
         if (!string.IsNullOrEmpty(hashD)) {
-            DeleteImg(hashD);
+            DeleteImgInDatabase(hashD);
         }
 
         lock (_lock) {
@@ -186,27 +145,19 @@ public partial class Images(string filedatabase, string filevit, string filemask
             var distance = 1f;
             var beam = GetBeam(img.Vector);
             for (var i = 0; i < beam.Length; i++) {
-                if (beam[i].img.Hash.Equals(hash)) {
+                if (beam[i].Hash.Equals(hash)) {
                     continue;
                 }
 
-                if (hsnew.Contains(beam[i].img.Hash)) {
+                if (hsnew.Contains(beam[i].Hash)) {
                     continue;
                 }
 
-                next = beam[i].img.Hash;
+                next = beam[i].Hash;
                 distance = beam[i].Distance;
                 i++;
                 break;
             }
-
-            var middle = beam.Length / 2;
-            var proximity = beam
-                .Where(e => !e.img.Hash.Equals(hash))
-                .OrderByDescending(e => e.img.LastView)
-                .Take(middle)
-                .Select(e => e.Distance)
-                .Min();
 
             if (string.IsNullOrEmpty(next)) {
                 return "no suitable next image found";
@@ -227,7 +178,6 @@ public partial class Images(string filedatabase, string filevit, string filemask
             }
 
             img.LastCheck = DateTime.Now;
-            UpdateImg(img);
             return sb.ToString();
         }
     }
@@ -241,14 +191,14 @@ public partial class Images(string filedatabase, string filevit, string filemask
                 return;
             }
 
-            var imgToCheck = GetImg(hashToCheck);
+            var imgToCheck = GetImgFromDatabase(hashToCheck);
             var message = GetNext(hashToCheck);
             if (string.IsNullOrEmpty(message)) {
                 continue;
             }
 
             if (string.IsNullOrEmpty(message)) {
-                DeleteImg(hashToCheck);
+                DeleteImgInDatabase(hashToCheck);
                 continue;
             }
 
@@ -259,7 +209,7 @@ public partial class Images(string filedatabase, string filevit, string filemask
 
         do {
             if (string.IsNullOrEmpty(hashX)) {
-                hashX = GetX();
+                hashX = GetHashLastView();
                 if (string.IsNullOrEmpty(hashX)) {
                     var totalcount = GetCount();
                     progress?.Report($"totalcount = {totalcount}");
@@ -268,12 +218,12 @@ public partial class Images(string filedatabase, string filevit, string filemask
             }
 
             if (!SetLeftPanel(hashX)) {
-                DeleteImg(hashX);
+                DeleteImgInDatabase(hashX);
                 hashX = null;
                 continue;
             }
 
-            var imgX = GetImg(hashX);
+            var imgX = GetImgFromDatabase(hashX);
             if (imgX.Vector.Length != AppConsts.VectorSize) {
                 progress?.Report($"calculating vector{AppConsts.CharEllipsis}");
                 var imagedata = AppFile.ReadMex(hashX);
@@ -283,12 +233,10 @@ public partial class Images(string filedatabase, string filevit, string filemask
                         var vector = _vit.CalculateVector(image);
                         if (vector != null) {
                             imgX.Vector = vector;
-                            UpdateImg(imgX);
                         }
                     }
                 }
                 else {
-                    DeleteImg(hashX);
                     hashX = null;
                     continue;
                 }
@@ -296,11 +244,11 @@ public partial class Images(string filedatabase, string filevit, string filemask
 
             var hashY = imgX.Next;
             if (!SetRightPanel(hashY)) {
-                DeleteImg(hashY);
+                DeleteImgInDatabase(hashY);
                 hashY = null;
                 var message = GetNext(hashX);
                 progress?.Report(message);
-                imgX = GetImg(hashX);
+                imgX = GetImgFromDatabase(hashX);
                 hashY = imgX.Next;
                 if (!SetRightPanel(hashY)) {
                     hashX = null;
@@ -308,7 +256,7 @@ public partial class Images(string filedatabase, string filevit, string filemask
                 }
             }
 
-            var imgY = GetImg(hashY);
+            var imgY = GetImgFromDatabase(hashY);
             var sb = new StringBuilder();
             var totalimages = GetCount();
             var nearGroup = GetNearGroup();
@@ -331,9 +279,9 @@ public partial class Images(string filedatabase, string filevit, string filemask
     public void Confirm(IProgress<string>? progress)
     {
         var hashX = _imgPanels[0]!.Value.Hash;
-        var imgX = GetImg(hashX);
+        var imgX = GetImgFromDatabase(hashX);
         var hashY = _imgPanels[1]!.Value.Hash;
-        var imgY = GetImg(hashY);
+        var imgY = GetImgFromDatabase(hashY);
 
         progress?.Report($"Calculating{AppConsts.CharEllipsis}");
 
@@ -342,7 +290,6 @@ public partial class Images(string filedatabase, string filevit, string filemask
         var hs = Helper.HistoryFromString(imgX.History);
         hs.Add(hashY);
         imgX.History = Helper.HistoryToString(hs);
-        UpdateImg(imgX);
         var message = GetNext(hashX);
         progress?.Report(message);
 
@@ -351,7 +298,6 @@ public partial class Images(string filedatabase, string filevit, string filemask
         hs = Helper.HistoryFromString(imgY.History);
         hs.Add(hashX);
         imgY.History = Helper.HistoryToString(hs);
-        UpdateImg(imgY);
         message = GetNext(hashY);
         progress?.Report(message);
     }
@@ -362,12 +308,11 @@ public partial class Images(string filedatabase, string filevit, string filemask
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
 
-        DeleteImg(hashX);
+        DeleteImgInDatabase(hashX);
 
-        var imgY = GetImg(hashY);
+        var imgY = GetImgFromDatabase(hashY);
         imgY.Score = imgY.Score + 1;
         imgY.LastView = DateTime.Now;
-        UpdateImg(imgY);
         var message = GetNext(hashY, hashX);
         progress?.Report(message);
     }
@@ -378,13 +323,12 @@ public partial class Images(string filedatabase, string filevit, string filemask
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
 
-        DeleteImg(hashY);
+        DeleteImgInDatabase(hashY);
 
 
-        var imgX = GetImg(hashX);
+        var imgX = GetImgFromDatabase(hashX);
         imgX.Score = imgX.Score + 1;
         imgX.LastView = DateTime.Now;
-        UpdateImg(imgX);
         var message = GetNext(hashX, hashY);
         progress?.Report(message);
     }
@@ -425,11 +369,17 @@ public partial class Images(string filedatabase, string filevit, string filemask
         }
 
         var rvector = _vit.CalculateVector(image);
-        var img = GetImg(hash);
+        var img = GetImgFromDatabase(hash);
         img.Vector = rvector;
         img.RotateMode = rotatemode;
         img.FlipMode = flipmode;
-        UpdateImg(img);
+    }
+
+    public IEnumerable<string> GetAllHashes()
+    {
+        lock (_lock) {
+            return [.. _hashToIndex.Keys];
+        }
     }
 
     protected virtual void Dispose(bool disposing)

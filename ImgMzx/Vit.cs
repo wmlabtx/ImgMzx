@@ -1,8 +1,10 @@
 ﻿using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Processing;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
+using System.Diagnostics;
+using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using Rectangle = SixLabors.ImageSharp.Rectangle;
 using Size = SixLabors.ImageSharp.Size;
@@ -46,9 +48,12 @@ public class Vit : IDisposable
         _sessionMask = new InferenceSession(fileMask, _sessionOptionsCPU);
     }
 
-    public float[] CalculateVector(Image<Rgb24> image)
+    public float[] CalculateVector(Image<Rgb24> image, bool isDebug = false)
     {
         using var prepared = PrepareImage(image);
+        if (isDebug) {
+            prepared.Save("debug/prepared.png");
+        }
 
         var inputMask = new float[3 * MaskSize * MaskSize];
         FillInputTensorMask(prepared, inputMask);
@@ -65,6 +70,19 @@ public class Vit : IDisposable
             for (int x = 0; x < MaskSize; x++) {
                 mask[y * MaskSize + x] = output[0, 0, y, x];
             }
+        }
+
+        if (isDebug) {
+            using var overlay = prepared.CloneAs<Rgba32>();
+            for (int y = 0; y < MaskSize; y++) {
+                for (int x = 0; x < MaskSize; x++) {
+                    var alpha = (byte)(mask[y * MaskSize + x] * 255);
+                    var orig = overlay[x, y];
+                    overlay[x, y] = new Rgba32(orig.R, orig.G, orig.B, alpha);
+                }
+            }
+
+            overlay.Save("debug/overlay.png");
         }
 
         var inputDataVit = new float[3 * VitSize * VitSize];
@@ -99,20 +117,23 @@ public class Vit : IDisposable
             weights[i] = wSum * invPatchArea;
         });
 
-        // Weighted mean-pool patch tokens (skip first 5: CLS + 4 register tokens)
         var hiddenDim = hiddenStates.Dimensions[2];
         var result = new float[AppConsts.VectorSize];
         var copyDim = Math.Min(hiddenDim, AppConsts.VectorSize);
         var totalWeight = weights.Sum();
-        if (totalWeight < 1e-6f) totalWeight = weights.Length;
+        if (totalWeight < 1e-6f) {
+            totalWeight = weights.Length;
+        }
+
         var invWeight = 1f / totalWeight;
 
         Parallel.For(0, copyDim, d => {
-            float sum = 0f;
+            Span<float> patchTokens = stackalloc float[weights.Length];
             for (int p = 0; p < weights.Length; p++) {
-                sum += hiddenStates[0, patchStart + p, d] * weights[p];
+                patchTokens[p] = hiddenStates[0, patchStart + p, d];
             }
-            result[d] = sum * invWeight;
+
+            result[d] = TensorPrimitives.Dot(patchTokens, weights) * invWeight;
         });
 
         Normalize(result);
@@ -175,24 +196,24 @@ public class Vit : IDisposable
         });
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void Normalize(Span<float> v)
     {
-        float sum = 0f;
-        foreach (var x in v) sum += x * x;
-        if (sum > 0) {
-            float inv = 1f / MathF.Sqrt(sum);
-            for (int i = 0; i < v.Length; i++) v[i] *= inv;
+        float norm = TensorPrimitives.Norm(v);
+        if (norm > 0f) {
+            float inv = 1f / norm;
+            for (int i = 0; i < v.Length; i++) {
+                v[i] *= inv;
+            }
         }
     }
 
-    public static float ComputeDistance(float[] x, float[] y)
+    public static float ComputeDistance(ReadOnlySpan<float> x, ReadOnlySpan<float> y)
     {
-        if (x.Length != y.Length || x.Length == 0) return 1f;
+        if (float.IsNaN(x[0]) || float.IsNaN(y[0])) {
+            return 1f;
+        }
 
-        float dot = 0f;
-        for (int i = 0; i < x.Length; i++) dot += x[i] * y[i];
-
+        float dot = TensorPrimitives.Dot(x, y);
         return Math.Clamp(1f - dot, 0f, 1f);
     }
 

@@ -53,21 +53,19 @@ public partial class Images : IDisposable
                             bad++;
                         }
                         else {
-                            var imgnew = new Img {
-                                Hash = hash,
-                                Vector = vector,
-                                RotateMode = RotateMode.None,
-                                FlipMode = FlipMode.None,
-                                LastView = lastview,
-                                Score = 0,
-                                LastCheck = new DateTime(1980, 1, 1),
-                                Next = string.Empty,
-                                Distance = 1f,
-                                History = string.Empty
-                            };
+                            var imgnew = new Img(
+                                hash: hash,
+                                rotateMode: RotateMode.None,
+                                flipMode: FlipMode.None,
+                                lastView: lastview,
+                                score: 0,
+                                lastCheck: new DateTime(1980, 1, 1),
+                                next: string.Empty,
+                                distance: 1f,
+                                history: string.Empty,
+                                images: this);
 
-                            _imgs.TryAdd(hash, imgnew);
-                            _database.AddImgToDatabase(imgnew);
+                            AddImgToDatabase(imgnew, vector.AsSpan());
                             AppFile.WriteMex(hash, orgimagedata);
                             AppFile.MoveToRecycleBin(orgfilename);
                             added++;
@@ -103,8 +101,7 @@ public partial class Images : IDisposable
     }
     public void Import(IProgress<string>? progress)
     {
-        _maxImages -= 100;
-        _database.UpdateMaxImagesInDatabase(_maxImages);
+        MaxImages -= 100;
         var lastview = GetLastView();
         var added = 0;
         var found = 0;

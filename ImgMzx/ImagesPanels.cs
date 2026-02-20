@@ -1,24 +1,40 @@
 ﻿using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using System.Diagnostics;
 
 namespace ImgMzx;
 
 public partial class Images : IDisposable
 {
+    public Panel? GetPanel(int id)
+    {
+        return (id == 0 || id == 1) ? _imgPanels[id] : null;
+    }
+
     private bool SetPanel(
         string hash,
         out byte[]? imagedata,
-        out Img? img,
+        out Img img,
         out Image<Rgb24>? image,
         out string extension,
         out DateTime? taken)
     {
         imagedata = null;
-        img = null;
         image = null;
         extension = "xxx";
         taken = null;
+        img = new Img(
+                hash: string.Empty,
+                rotateMode: RotateMode.None,
+                flipMode: FlipMode.None,
+                lastView: DateTime.MinValue,
+                next: string.Empty,
+                score: 0,
+                lastCheck: DateTime.MinValue,
+                distance: 0,
+                history: string.Empty,
+                images: this);
 
         if (!AppHash.IsValidHash(hash) || !ContainsImg(hash)) {
             return false;
@@ -30,12 +46,12 @@ public partial class Images : IDisposable
         }
 
         extension = AppBitmap.GetExtension(imagedata);
-        img = GetImg(hash);
-        if (img == null) {
+        img = GetImgFromDatabase(hash);
+        if (string.IsNullOrEmpty(img.Hash)) {
             return false;
         }
 
-        image = AppBitmap.GetImage(imagedata, img.Value.RotateMode, img.Value.FlipMode);
+        image = AppBitmap.GetImage(imagedata, img.RotateMode, img.FlipMode);
         if (image == null) {
             return false;
         }
@@ -60,12 +76,11 @@ public partial class Images : IDisposable
         }
 
         Debug.Assert(imagedata != null);
-        Debug.Assert(img != null);
         Debug.Assert(image != null);
 
         var imgpanel = new Panel {
             Hash = hash,
-            Img = img.Value,
+            Img = img,
             Size = imagedata.LongLength,
             Image = image,
             Extension = extension,
@@ -93,7 +108,6 @@ public partial class Images : IDisposable
         }
 
         Debug.Assert(imagedata != null);
-        Debug.Assert(img != null);
         Debug.Assert(image != null);
 
         if (ShowXOR) {
@@ -104,7 +118,7 @@ public partial class Images : IDisposable
 
         var imgpanel = new Panel {
             Hash = hash,
-            Img = img.Value,
+            Img = img,
             Size = imagedata.LongLength,
             Image = image,
             Extension = extension,
