@@ -1,6 +1,7 @@
 ﻿using ImgMzx;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace ImgMzxTests;
 
@@ -17,9 +18,8 @@ WHERE LENGTH(vector) = 0;
         */
 
         using var images = new Images(
-            $@"{AppContext.BaseDirectory}db\spacer.db", 
-            AppConsts.FileVit, 
-            AppConsts.FileMask);
+            $@"{AppContext.BaseDirectory}db\spacer.db",
+            AppConsts.FileVit);
         var progressMessages = new List<string>();
         var progress = new Progress<string>(msg => progressMessages.Add(msg));
 
@@ -40,8 +40,7 @@ WHERE LENGTH(vector) = 0;
     {
         using var images = new Images(
             $@"{AppContext.BaseDirectory}db\spacer.db",
-            AppConsts.FileVit,
-            AppConsts.FileMask);
+            AppConsts.FileVit);
         var progressMessages = new List<string>();
         var progress = new Progress<string>(msg => progressMessages.Add(msg));
         images.Load(progress);
@@ -67,10 +66,97 @@ WHERE LENGTH(vector) = 0;
                 }
             }
             if ((i + 1) % 100 == 0 || i == total - 1) {
-                Debug.WriteLine($"Progress: {i + 1}/{total}, updated: {updated}");
+                var eta = TimeSpan.FromSeconds(sw.Elapsed.TotalSeconds / (i + 1) * (total - i - 1));
+                var finish = DateTime.Now + eta;
+                Debug.WriteLine($"{i + 1}/{total}, updated: {updated}, eta {eta:hh\\:mm}, done at {finish:h:mm tt}");
             }
         }
         sw.Stop();
         Debug.WriteLine($"Done. Updated {updated} vectors in {sw.Elapsed.TotalSeconds:F1} s.");
+    }
+
+    private static string ComputeNextAndDistance(Images images, string hash)
+    {
+        var img = images.GetImgFromDatabase(hash);
+        if (string.IsNullOrEmpty(img.Hash) || img.Vector.Length != AppConsts.VectorSize) {
+            return string.Empty;
+        }
+
+        var hs = Helper.HistoryFromString(img.History);
+        var hsnew = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var h in hs) {
+            if (images.ContainsImg(h)) {
+                hsnew.Add(h);
+            }
+        }
+
+        if (hs.Count != hsnew.Count) {
+            img.History = Helper.HistoryToString(hsnew);
+        }
+
+        var oldNext = img.Next;
+        if (string.IsNullOrEmpty(oldNext)) {
+            oldNext = "XXXX";
+        }
+
+        var beam = images.GetBeam(img.Vector);
+        var next = oldNext;
+        var distance = 1f;
+        for (var i = 0; i < beam.Length; i++) {
+            if (beam[i].Hash.Equals(hash)) continue;
+            if (hsnew.Contains(beam[i].Hash)) continue;
+            next = beam[i].Hash;
+            distance = beam[i].Distance;
+            break;
+        }
+
+        if (string.IsNullOrEmpty(next)) {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        if (!oldNext.Equals(next, StringComparison.Ordinal)) {
+            img.Next = next;
+        }
+
+        if (Math.Abs(img.Distance - distance) >= 0.0001f) {
+            sb.Append($"{img.Distance:F4} {AppConsts.CharRightArrow} {distance:F4}");
+            img.Distance = distance;
+        }
+
+        return sb.ToString();
+    }
+
+    [TestMethod]
+    public void CalculateAllDistances()
+    {
+        using var images = new Images(
+            AppConsts.FileDatabase,
+            AppConsts.FileVit);
+        var progressMessages = new List<string>();
+        var progress = new Progress<string>(msg => progressMessages.Add(msg));
+        images.Load(progress);
+
+        var hashes = images.GetAllHashes().ToArray();
+        int total = hashes.Length;
+        int updated = 0;
+        var sw = Stopwatch.StartNew();
+
+        for (int i = 0; i < total; i++) {
+            var hash = hashes[i];
+            var message = ComputeNextAndDistance(images, hash);
+            if (!string.IsNullOrEmpty(message)) {
+                updated++;
+            }
+
+            if ((i + 1) % 100 == 0 || i == total - 1) {
+                var eta = TimeSpan.FromSeconds(sw.Elapsed.TotalSeconds / (i + 1) * (total - i - 1));
+                var finish = DateTime.Now + eta;
+                Debug.WriteLine($"{i + 1}/{total}, updated: {updated}, eta {eta:hh\\:mm}, done at {finish:h:mm tt}");
+            }
+        }
+
+        sw.Stop();
+        Debug.WriteLine($"Done. Updated {updated} distances in {sw.Elapsed.TotalSeconds:F1} s.");
     }
 }

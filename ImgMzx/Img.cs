@@ -27,9 +27,13 @@ public struct Img(
         set
         {
             _lastView = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeLastView, value);
+            if (_lastView.Ticks > 0 && _lastView.Ticks < _minValidTicks)
+                throw new ArgumentException($"LastView too old: {_lastView} (ticks={_lastView.Ticks})");
+            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeLastView, value.Ticks);
         }
     }
+
+    private static readonly long _minValidTicks = new DateTime(1970, 1, 1).Ticks;
 
     private DateTime _lastCheck = lastCheck;
     public DateTime LastCheck
@@ -38,7 +42,9 @@ public struct Img(
         set
         {
             _lastCheck = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeLastCheck, value);
+            if (_lastCheck.Ticks > 0 && _lastCheck.Ticks < _minValidTicks)
+                throw new ArgumentException($"LastCheck too old: {_lastCheck} (ticks={_lastCheck.Ticks})");
+            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeLastCheck, value.Ticks);
         }
     }
 
@@ -48,7 +54,7 @@ public struct Img(
         set
         {
             _rotateMode = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeRotateMode, value);
+            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeRotateMode, (int)value);
         }
     }
 
@@ -58,7 +64,7 @@ public struct Img(
         set
         {
             _flipMode = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeFlipMode, value);
+            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeFlipMode, (int)value);
         }
     }
 

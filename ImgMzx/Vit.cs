@@ -1,199 +1,116 @@
-﻿using Microsoft.ML.OnnxRuntime;
+using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
-using System.Diagnostics;
 using System.Numerics.Tensors;
-using System.Runtime.CompilerServices;
 using Rectangle = SixLabors.ImageSharp.Rectangle;
-using Size = SixLabors.ImageSharp.Size;
 
 namespace ImgMzx;
 
 public class Vit : IDisposable
 {
-    private const int VitSize = 256;
-    private const int MaskSize = 256;
+    private static readonly float[] _rLut = CreateLut(0.485f, 1f / 0.229f);
+    private static readonly float[] _gLut = CreateLut(0.456f, 1f / 0.224f);
+    private static readonly float[] _bLut = CreateLut(0.406f, 1f / 0.225f);
+
+    private static float[] CreateLut(float mean, float invStd)
+    {
+        var lut = new float[256];
+        for (int i = 0; i < 256; i++) {
+            lut[i] = (i / 255f - mean) * invStd;
+        }
+        return lut;
+    }
 
     private readonly InferenceSession _sessionVit;
-    private readonly InferenceSession _sessionMask;
-    private readonly SessionOptions _sessionOptionsGPU, _sessionOptionsCPU;
+    private readonly SessionOptions _sessionOptionsGPU;
     private readonly Lock _lock = new();
     private bool _disposed;
 
-    public Vit(string fileVit, string fileMask)
+    public Vit(string fileVit)
     {
         _sessionOptionsGPU = new SessionOptions {
             LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR,
             EnableCpuMemArena = true,
-            EnableMemoryPattern = true,
+            EnableMemoryPattern = false,
             ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
-            InterOpNumThreads = Environment.ProcessorCount,
-            IntraOpNumThreads = Environment.ProcessorCount,
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
+            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_BASIC
         };
 
         try {
-            _sessionOptionsGPU.AppendExecutionProvider_CUDA(0);
+            var cudaOptions = new OrtCUDAProviderOptions();
+            var configs = new Dictionary<string, string> {
+                { "device_id", "0" },
+                { "cudnn_conv_algo_search", "HEURISTIC" },
+                { "do_copy_in_default_stream", "1" }
+            };
+            cudaOptions.UpdateOptions(configs);
+            _sessionOptionsGPU.AppendExecutionProvider_CUDA(cudaOptions);
         }
         catch {
             _sessionOptionsGPU.AppendExecutionProvider_CPU();
         }
 
         _sessionVit = new InferenceSession(fileVit, _sessionOptionsGPU);
-
-        _sessionOptionsCPU = new SessionOptions();
-        _sessionOptionsCPU.AppendExecutionProvider_CPU();
-        _sessionMask = new InferenceSession(fileMask, _sessionOptionsCPU);
     }
 
-    public float[] CalculateVector(Image<Rgb24> image, bool isDebug = false)
+    public static (int scaledW, int scaledH, int cropW, int cropH) GetScaledSize(int imageWidth, int imageHeight, int shortSide = 384)
     {
-        using var prepared = PrepareImage(image);
-        if (isDebug) {
-            prepared.Save("debug/prepared.png");
-        }
+        float scale = (float)shortSide / Math.Min(imageWidth, imageHeight);
+        var scaledW = (int)Math.Round(imageWidth * scale);
+        var scaledH = (int)Math.Round(imageHeight * scale);
+        var cropW = Math.Min(1024, (scaledW / 16) * 16);
+        var cropH = Math.Min(1024, (scaledH / 16) * 16);
+        return (scaledW, scaledH, cropW, cropH);
+    }
 
-        var inputMask = new float[3 * MaskSize * MaskSize];
-        FillInputTensorMask(prepared, inputMask);
+    public float[] CalculateVector(Image<Rgb24> image) => CalculateVector(image, 384);
 
-        var tensorMask = new DenseTensor<float>(inputMask, [1, 3, MaskSize, MaskSize]);
-        var containerMask = new[] { NamedOnnxValue.CreateFromTensor("pixel_values", tensorMask) };
+    public float[] CalculateVector(Image<Rgb24> image, int shortSide)
+    {
+        (int scaledW, int scaledH, int cropW, int cropH) = GetScaledSize(image.Width, image.Height, shortSide);
+        using var prepared = image.Clone(ctx => ctx
+            .Resize(scaledW, scaledH)
+            .Crop(new Rectangle((scaledW - cropW) / 2, (scaledH - cropH) / 2, cropW, cropH)));
 
-        using var resultsMask = _sessionMask.Run(containerMask);
-        var output = resultsMask[0].AsTensor<float>();
+        int channelSize = cropW * cropH;
+        var inputData = new float[3 * channelSize];
+        var rLut = _rLut;
+        var gLut = _gLut;
+        var bLut = _bLut;
 
-        // Output shape: [1, 1, 256, 256]
-        var mask = new float[MaskSize * MaskSize];
-        for (int y = 0; y < MaskSize; y++) {
-            for (int x = 0; x < MaskSize; x++) {
-                mask[y * MaskSize + x] = output[0, 0, y, x];
-            }
-        }
-
-        if (isDebug) {
-            using var overlay = prepared.CloneAs<Rgba32>();
-            for (int y = 0; y < MaskSize; y++) {
-                for (int x = 0; x < MaskSize; x++) {
-                    var alpha = (byte)(mask[y * MaskSize + x] * 255);
-                    var orig = overlay[x, y];
-                    overlay[x, y] = new Rgba32(orig.R, orig.G, orig.B, alpha);
+        prepared.ProcessPixelRows(accessor => {
+            for (int y = 0; y < cropH; y++) {
+                var row = accessor.GetRowSpan(y);
+                int offset = y * cropW;
+                for (int x = 0; x < cropW; x++) {
+                    var p = row[x];
+                    int idx = offset + x;
+                    inputData[idx] = rLut[p.R];
+                    inputData[channelSize + idx] = gLut[p.G];
+                    inputData[2 * channelSize + idx] = bLut[p.B];
                 }
             }
+        });
 
-            overlay.Save("debug/overlay.png");
-        }
-
-        var inputDataVit = new float[3 * VitSize * VitSize];
-        FillInputTensorVit(prepared, inputDataVit);
-
-        var tensorVit = new DenseTensor<float>(inputDataVit, [1, 3, VitSize, VitSize]);
+        var tensorVit = new DenseTensor<float>(inputData, [1, 3, cropH, cropW]);
         var containerVit = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor("pixel_values", tensorVit) };
 
         using var results = _sessionVit.Run(containerVit);
         var hiddenStates = results.First(r => r.Name == "last_hidden_state").AsTensor<float>()
             ?? throw new InvalidOperationException("Hidden states output is null");
 
-        // Compute per-patch weights from mask (16x16 grid, each patch = 16x16 pixels)
-        const int patchStart = 5;
-        const int patchGrid = 16;
-        const int patchPixels = 16;
-        const float invPatchArea = 1f / (patchPixels * patchPixels);
-        var weights = new float[patchGrid * patchGrid];
-
-        Parallel.For(0, patchGrid * patchGrid, i => {
-            int py = i / patchGrid;
-            int px = i % patchGrid;
-            float wSum = 0f;
-            int baseY = py * patchPixels;
-            int baseX = px * patchPixels;
-            for (int dy = 0; dy < patchPixels; dy++) {
-                int rowOffset = (baseY + dy) * MaskSize + baseX;
-                for (int dx = 0; dx < patchPixels; dx++) {
-                    wSum += mask[rowOffset + dx];
-                }
-            }
-            weights[i] = wSum * invPatchArea;
-        });
-
+        // CLS token at index 0
         var hiddenDim = hiddenStates.Dimensions[2];
         var result = new float[AppConsts.VectorSize];
         var copyDim = Math.Min(hiddenDim, AppConsts.VectorSize);
-        var totalWeight = weights.Sum();
-        if (totalWeight < 1e-6f) {
-            totalWeight = weights.Length;
+        for (int d = 0; d < copyDim; d++) {
+            result[d] = hiddenStates[0, 0, d];
         }
-
-        var invWeight = 1f / totalWeight;
-
-        Parallel.For(0, copyDim, d => {
-            Span<float> patchTokens = stackalloc float[weights.Length];
-            for (int p = 0; p < weights.Length; p++) {
-                patchTokens[p] = hiddenStates[0, patchStart + p, d];
-            }
-
-            result[d] = TensorPrimitives.Dot(patchTokens, weights) * invWeight;
-        });
 
         Normalize(result);
         return result;
-    }
-
-    private static Image<Rgb24> PrepareImage(Image<Rgb24> image)
-    {
-        float scale = Math.Max((float)VitSize / image.Width, (float)VitSize / image.Height);
-        int w = (int)Math.Round(image.Width * scale);
-        int h = (int)Math.Round(image.Height * scale);
-
-        return image.Clone(ctx => ctx
-            .Resize(new ResizeOptions { Size = new Size(w, h), Mode = ResizeMode.Max })
-            .Crop(new Rectangle((w - VitSize) / 2, (h - VitSize) / 2, VitSize, VitSize))
-        );
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void FillInputTensorVit(Image<Rgb24> image, float[] data)
-    {
-        const int channelSize = VitSize * VitSize;
-        const float scale = 1f / 255f;
-        const float rMean = 0.485f, gMean = 0.456f, bMean = 0.406f;
-        const float invRStd = 1f / 0.229f, invGStd = 1f / 0.224f, invBStd = 1f / 0.225f;
-
-        image.ProcessPixelRows(accessor => {
-            for (int y = 0; y < VitSize; y++) {
-                var row = accessor.GetRowSpan(y);
-                int offset = y * VitSize;
-                for (int x = 0; x < VitSize; x++) {
-                    var p = row[x];
-                    int idx = offset + x;
-                    data[idx] = (p.R * scale - rMean) * invRStd;
-                    data[channelSize + idx] = (p.G * scale - gMean) * invGStd;
-                    data[2 * channelSize + idx] = (p.B * scale - bMean) * invBStd;
-                }
-            }
-        });
-    }
-
-    private static void FillInputTensorMask(Image<Rgb24> image, float[] data)
-    {
-        // No normalization, no padding, only rescale to [0,1]
-        const int channelSize = MaskSize * MaskSize;
-        const float scale = 1f / 255f;
-
-        image.ProcessPixelRows(accessor => {
-            for (int y = 0; y < MaskSize; y++) {
-                var row = accessor.GetRowSpan(y);
-                int offset = y * MaskSize;
-                for (int x = 0; x < MaskSize; x++) {
-                    var p = row[x];
-                    int idx = offset + x;
-                    data[idx] = p.R * scale;
-                    data[channelSize + idx] = p.G * scale;
-                    data[2 * channelSize + idx] = p.B * scale;
-                }
-            }
-        });
     }
 
     private static void Normalize(Span<float> v)
@@ -222,9 +139,7 @@ public class Vit : IDisposable
         if (_disposed) return;
         lock (_lock) {
             _sessionVit?.Dispose();
-            _sessionMask?.Dispose();
             _sessionOptionsGPU?.Dispose();
-            _sessionOptionsCPU?.Dispose();
         }
         _disposed = true;
         GC.SuppressFinalize(this);

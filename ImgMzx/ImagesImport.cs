@@ -59,7 +59,7 @@ public partial class Images : IDisposable
                                 flipMode: FlipMode.None,
                                 lastView: lastview,
                                 score: 0,
-                                lastCheck: new DateTime(1980, 1, 1),
+                                lastCheck: GetLastCheck(),
                                 next: string.Empty,
                                 distance: 1f,
                                 history: string.Empty,

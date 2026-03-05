@@ -7,12 +7,12 @@ using System.Text;
 
 namespace ImgMzx;
 
-public partial class Images(string filedatabase, string filevit, string filemask) : IDisposable
+public partial class Images(string filedatabase, string filevit) : IDisposable
 {
     private readonly Lock _lock = new();
     private bool disposedValue;
     private readonly SqliteConnection _sqlConnection = new();
-    private readonly Vit _vit = new(filevit, filemask);
+    private readonly Vit _vit = new(filevit);
     private readonly Panel?[] _imgPanels = { null, null };
 
     public bool ShowXOR;
@@ -67,6 +67,25 @@ public partial class Images(string filedatabase, string filevit, string filemask
 
         _freeSlots = new Stack<int>(Enumerable.Range(counter, numVectors - counter).Reverse());
         progress?.Report($"Loaded {counter} vectors");
+
+        var minValidTicks = new DateTime(1970, 1, 1).Ticks;
+        lock (_lock) {
+            using var cmd1 = new SqliteCommand(
+                $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeLastView} = @now WHERE CAST({AppConsts.AttributeLastView} AS INTEGER) < @min",
+                _sqlConnection);
+            cmd1.Parameters.AddWithValue("@now", DateTime.Now.Ticks);
+            cmd1.Parameters.AddWithValue("@min", minValidTicks);
+            var fixed1 = cmd1.ExecuteNonQuery();
+            if (fixed1 > 0) progress?.Report($"Fixed {fixed1} records with bad lastview");
+
+            using var cmd2 = new SqliteCommand(
+                $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeLastCheck} = @old WHERE CAST({AppConsts.AttributeLastCheck} AS INTEGER) < @min",
+                _sqlConnection);
+            cmd2.Parameters.AddWithValue("@old", new DateTime(1990, 1, 1).Ticks);
+            cmd2.Parameters.AddWithValue("@min", minValidTicks);
+            var fixed2 = cmd2.ExecuteNonQuery();
+            if (fixed2 > 0) progress?.Report($"Fixed {fixed2} records with bad lastcheck");
+        }
     }
 
     public (string Hash, float Distance)[] GetBeam(ReadOnlySpan<float> query)
@@ -184,7 +203,7 @@ public partial class Images(string filedatabase, string filevit, string filemask
 
     public void Find(string? hashX, IProgress<string>? progress)
     {
-        for (var i = 0; i < 100; i++) {
+        for (var i = 0; i < 3; i++) {
             var hashToCheck = GetHashLastCheck();
             if (hashToCheck == null) {
                  progress?.Report("nothing to show");
@@ -308,6 +327,7 @@ public partial class Images(string filedatabase, string filevit, string filemask
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
 
+        AppFile.DeleteMex(hashX, DateTime.Now);
         DeleteImgInDatabase(hashX);
 
         var imgY = GetImgFromDatabase(hashY);
@@ -323,8 +343,8 @@ public partial class Images(string filedatabase, string filevit, string filemask
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
 
+        AppFile.DeleteMex(hashY, DateTime.Now);
         DeleteImgInDatabase(hashY);
-
 
         var imgX = GetImgFromDatabase(hashX);
         imgX.Score = imgX.Score + 1;

@@ -1,5 +1,4 @@
 ﻿using ImgMzx;
-using System.Security.Policy;
 using System.Text;
 
 namespace ImgMzxTests;
@@ -8,19 +7,21 @@ namespace ImgMzxTests;
 public class AppVitTest
 {
     private static readonly StringBuilder sb = new();
-    private readonly Vit _vit = new(AppConsts.FileVit, AppConsts.FileMask);
+    private readonly Vit _vit = new(AppConsts.FileVit);
 
-    private float[] GetVector(string name)
+    private float[] GetVector(string name) => GetVector(name, 384);
+
+    private float[] GetVector(string name, int shortSide)
     {
         var data = AppFile.ReadFile($@"{AppContext.BaseDirectory}images\{name}.jpg");
         Assert.IsNotNull(data);
         using var image = AppBitmap.GetImage(data, SixLabors.ImageSharp.Processing.RotateMode.None, SixLabors.ImageSharp.Processing.FlipMode.None);
         Assert.IsNotNull(image);
-        return _vit.CalculateVector(image);
+        return _vit.CalculateVector(image, shortSide);
     }
 
     [TestMethod]
-    public void Main()
+    public void ComparisonTest()
     {
         var gabs = new string[] { "gab_org", "gab_blur", "gab_bw", "gab_crop", "gab_exp", "gab_logo", "gab_noice", "gab_scale", "gab_xor",
             "gab_sim1", "gab_sim2", "gab_face", "gab_r3", "gab_r10", "gab_r90", "gab_toside",
@@ -81,24 +82,74 @@ public class AppVitTest
     {
         using var images = new Images(
             AppConsts.FileDatabase,
-            AppConsts.FileVit,
-            AppConsts.FileMask);
+            AppConsts.FileVit);
         var progressMessages = new List<string>();
         var progress = new Progress<string>(msg => progressMessages.Add(msg));
         images.Load(progress);
         var hashes = images.GetAllHashes().ToArray();
-        var irandom = Random.Shared.Next(0, hashes.Length);
-        var hash = hashes[irandom];
-        var img = images.GetImgFromDatabase(hash);
-        var imgData = AppFile.ReadMex(hash);
-        if (imgData != null) {
-            using var image = AppBitmap.GetImage(imgData);
-            if (image != null) {
-                var newVector = images.Vit.CalculateVector(image);
-                var vit = images.Vit;
-                var vector = vit.CalculateVector(image, isDebug: true);
-                Console.WriteLine($"Debug images for hash {hash} saved to debug_output/");
+
+        const int count = 10;
+        var distances = new List<float>();
+        int skipped = 0;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < count; i++) {
+            var hash = hashes[Random.Shared.Next(0, hashes.Length)];
+            var storedVector = images.GetVector(hash).ToArray();
+            if (storedVector.Length != AppConsts.VectorSize) {
+                skipped++;
+                continue;
             }
+
+            var imgData = AppFile.ReadMex(hash);
+            if (imgData == null) {
+                skipped++;
+                continue;
+            }
+
+            using var image = AppBitmap.GetImage(imgData);
+            if (image == null) {
+                skipped++;
+                continue;
+            }
+
+            var computedVector = images.Vit.CalculateVector(image);
+            var dist = Vit.ComputeDistance(storedVector, computedVector);
+            distances.Add(dist);
+            Console.WriteLine($"  {hash[..8]}… dist={dist:F4}  ({image.Width}x{image.Height})");
         }
+
+        sw.Stop();
+
+        if (distances.Count > 0) {
+            Console.WriteLine();
+            Console.WriteLine($"Compared: {distances.Count}  Skipped: {skipped}");
+            Console.WriteLine($"Distance  min={distances.Min():F6}  max={distances.Max():F6}  avg={distances.Average():F6}");
+        }
+
+        Console.WriteLine($"Average vector time: {sw.Elapsed.TotalMilliseconds / count:F1} ms");
+    }
+
+    [TestMethod]
+    public void ResolutionTest()
+    {
+        var simNames   = new[] { "gab_blur", "gab_bw", "gab_crop", "gab_exp", "gab_logo", "gab_noice",
+                                 "gab_scale", "gab_xor", "gab_sim1", "gab_sim2", "gab_face",
+                                 "gab_r3", "gab_r10", "gab_r90", "gab_toside" };
+        var nosimNames = new[] { "gab_nosim1", "gab_nosim2", "gab_nosim3", "gab_nosim4", "gab_nosim5" };
+
+        var output = new StringBuilder();
+        output.AppendLine($"{"shortSide",-10} {"sim_avg",-10} {"nosim_avg",-10} {"sep",-8}");
+        output.AppendLine(new string('-', 40));
+
+        foreach (var shortSide in new[] { 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 512 }) {
+            var baseVec   = GetVector("gab_org", shortSide);
+            double simAvg   = simNames.Average(n   => Vit.ComputeDistance(baseVec, GetVector(n, shortSide)));
+            double nosimAvg = nosimNames.Average(n => Vit.ComputeDistance(baseVec, GetVector(n, shortSide)));
+
+            output.AppendLine($"{shortSide,-10} {simAvg,-10:F4} {nosimAvg,-10:F4} {nosimAvg - simAvg,-8:F4}");
+        }
+
+        Console.WriteLine(output.ToString());
     }
 }

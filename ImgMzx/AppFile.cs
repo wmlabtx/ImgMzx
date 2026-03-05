@@ -1,5 +1,4 @@
-﻿using Microsoft.VisualBasic.FileIO;
-using System.IO;
+﻿using System.IO;
 using System.Text.RegularExpressions;
 
 namespace ImgMzx;
@@ -121,12 +120,11 @@ public static class AppFile
             return;
         }
 
-        try {
-            FileSystem.DeleteFile(filename, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
-        }
-        catch {
-            File.Delete(filename);
-        }
+        var name = Path.GetFileNameWithoutExtension(filename);
+        var ext = Path.GetExtension(filename).TrimStart('.');
+        var dest = GetRecycledName(name, ext, AppConsts.PathDeleted, DateTime.Now);
+        CreateDirectorySafe(dest);
+        File.Move(filename, dest);
     }
 
     public static void WriteMex(string hash, byte[] imagedata, string rootpath = AppConsts.PathHp, string backuppath = AppConsts.PathHpBackup)
@@ -240,23 +238,23 @@ public static class AppFile
             throw new ArgumentException("Invalid hash", nameof(hash));
         }
 
+        var imagedata = ReadMex(hash, rootpath, backuppath);
+        if (imagedata != null) {
+            var ext = AppBitmap.GetExtension(imagedata);
+            var dest = GetRecycledName(hash, ext, deletedpath, now);
+            CreateDirectorySafe(dest);
+            File.WriteAllBytes(dest, imagedata);
+        }
+
         var mex = GetFileName(hash: hash, rootpath: rootpath, extension: AppConsts.MexExtension);
         var bakmex = GetFileName(hash: hash, rootpath: backuppath, extension: AppConsts.MexExtension);
-        var recycled = GetDeletedName(hash, now, deletedpath);
         lock (_lock) {
             if (File.Exists(mex)) {
-                CreateDirectorySafe(recycled);
-                File.Move(mex, recycled, overwrite: true);
-
-                if (File.Exists(bakmex)) {
-                    MoveToRecycleBin(bakmex);
-                }
+                File.Delete(mex);
             }
-            else {
-                if (File.Exists(bakmex)) {
-                    CreateDirectorySafe(recycled);
-                    File.Move(bakmex, recycled, overwrite: true);
-                }
+
+            if (File.Exists(bakmex)) {
+                File.Delete(bakmex);
             }
         }
     }
