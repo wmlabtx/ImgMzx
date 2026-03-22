@@ -199,35 +199,25 @@ public partial class Images : IDisposable
     public string GetHashLastView()
     {
         lock (_lock) {
-            var sql = $@"
+            using var command = new SqliteCommand(
+                $@"
             SELECT {AppConsts.AttributeHash}
             FROM {AppConsts.TableImages}
-            WHERE {AppConsts.AttributeLastView} <= (
-                SELECT MIN({AppConsts.AttributeLastView}) + @daysTicks FROM {AppConsts.TableImages}
+            WHERE LENGTH({AppConsts.AttributeHistory}) = (
+                SELECT MIN(LENGTH({AppConsts.AttributeHistory}))
+                FROM {AppConsts.TableImages}
             )
             AND {AppConsts.AttributeScore} = (
                 SELECT MIN({AppConsts.AttributeScore})
                 FROM {AppConsts.TableImages}
-                WHERE {AppConsts.AttributeLastView} <= (
-                    SELECT MIN({AppConsts.AttributeLastView}) + @daysTicks FROM {AppConsts.TableImages}
+                WHERE LENGTH({AppConsts.AttributeHistory}) = (
+                    SELECT MIN(LENGTH({AppConsts.AttributeHistory}))
+                    FROM {AppConsts.TableImages}
                 )
             )
-            ORDER BY {AppConsts.AttributeLastCheck} DESC
-            LIMIT 1;";
-
-            /*
-            var sql = $@"
-            SELECT {AppConsts.AttributeHash}
-            FROM {AppConsts.TableImages}
-            WHERE {AppConsts.AttributeLastView} <= (
-                SELECT MIN({AppConsts.AttributeLastView}) + @daysTicks FROM {AppConsts.TableImages}
-            )
-            ORDER BY {AppConsts.AttributeLastCheck} DESC
-            LIMIT 1;";
-            */
-
-            using var command = new SqliteCommand(sql, _sqlConnection);
-            command.Parameters.AddWithValue("@daysTicks", TimeSpan.FromDays(365).Ticks);
+            ORDER BY {AppConsts.AttributeDistance} DESC
+            LIMIT 1;",
+                _sqlConnection);
 
             var result = command.ExecuteScalar();
             return result?.ToString() ?? string.Empty;
@@ -286,6 +276,18 @@ public partial class Images : IDisposable
             groupLenCmd.Parameters.AddWithValue("@minScore", minScore);
             var groupLen = Convert.ToInt32(groupLenCmd.ExecuteScalar());
             return $"{minLen}:{minScore}:{groupLen}";
+        }
+    }
+
+    public void UpdateRecentInDatabase(int index, ReadOnlySpan<float> vector)
+    {
+        lock (_lock) {
+            using var sqlCommand = new SqliteCommand(
+                $"UPDATE {AppConsts.TableRecent} SET {AppConsts.AttributeVector} = @value WHERE [{AppConsts.AttributeIndex}] = @index",
+                _sqlConnection);
+            sqlCommand.Parameters.AddWithValue("@value", MemoryMarshal.Cast<float, byte>(vector).ToArray());
+            sqlCommand.Parameters.AddWithValue("@index", index);
+            sqlCommand.ExecuteNonQuery();
         }
     }
 }

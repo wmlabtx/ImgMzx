@@ -33,11 +33,12 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         _maxImages = 0;
         lock (_lock) {
             using var command = new SqliteCommand(
-                $@"SELECT {AppConsts.AttributeMaxImages} FROM {AppConsts.TableVars};",
+                $@"SELECT {AppConsts.AttributeMaxImages}, [{AppConsts.AttributeIndex}] FROM {AppConsts.TableVars};",
                 _sqlConnection);
             using var reader = command.ExecuteReader();
             if (reader.Read()) {
                 _maxImages = (int)reader.GetInt64(0);
+                _recentIndex = (int)reader.GetInt64(1);
             }
         }
 
@@ -68,23 +69,23 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         _freeSlots = new Stack<int>(Enumerable.Range(counter, numVectors - counter).Reverse());
         progress?.Report($"Loaded {counter} vectors");
 
-        var minValidTicks = new DateTime(1970, 1, 1).Ticks;
+        _recent = new float[AppConsts.RecentLength * AppConsts.VectorSize];
+        var allRecentBytes = MemoryMarshal.AsBytes(_recent.AsSpan());
         lock (_lock) {
-            using var cmd1 = new SqliteCommand(
-                $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeLastView} = @now WHERE CAST({AppConsts.AttributeLastView} AS INTEGER) < @min",
+            using var command = new SqliteCommand(
+                $@"SELECT [{AppConsts.AttributeIndex}], {AppConsts.AttributeVector} FROM {AppConsts.TableRecent};",
                 _sqlConnection);
-            cmd1.Parameters.AddWithValue("@now", DateTime.Now.Ticks);
-            cmd1.Parameters.AddWithValue("@min", minValidTicks);
-            var fixed1 = cmd1.ExecuteNonQuery();
-            if (fixed1 > 0) progress?.Report($"Fixed {fixed1} records with bad lastview");
-
-            using var cmd2 = new SqliteCommand(
-                $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeLastCheck} = @old WHERE CAST({AppConsts.AttributeLastCheck} AS INTEGER) < @min",
-                _sqlConnection);
-            cmd2.Parameters.AddWithValue("@old", new DateTime(1990, 1, 1).Ticks);
-            cmd2.Parameters.AddWithValue("@min", minValidTicks);
-            var fixed2 = cmd2.ExecuteNonQuery();
-            if (fixed2 > 0) progress?.Report($"Fixed {fixed2} records with bad lastcheck");
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
+            var dt = DateTime.Now;
+            while (reader.Read()) {
+                var index = reader.GetInt32(0);
+                using var stream = reader.GetStream(1);
+                stream.ReadExactly(allRecentBytes.Slice(index * bytesPerVector, bytesPerVector));
+                if (DateTime.Now.Subtract(dt).TotalMilliseconds >= AppConsts.TimeLapse) {
+                    dt = DateTime.Now;
+                    progress?.Report($"Loaded {index + 1} recents{AppConsts.CharEllipsis}");
+                }
+            }
         }
     }
 
@@ -275,7 +276,13 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
                 }
             }
 
-            var imgY = GetImgFromDatabase(hashY);
+            RecentIndex = RecentIndex + 1;
+            if (RecentIndex >= AppConsts.RecentLength) {
+                RecentIndex = 0;
+            }
+
+            UpdateRecent(RecentIndex, imgX.Vector);
+
             var sb = new StringBuilder();
             var totalimages = GetCount();
             var nearGroup = GetNearGroup();
@@ -312,7 +319,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         var message = GetNext(hashX);
         progress?.Report(message);
 
-        imgY.Score = imgY.Score + 1;
         imgY.LastView = DateTime.Now;
         hs = Helper.HistoryFromString(imgY.History);
         hs.Add(hashX);
@@ -331,7 +337,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         DeleteImgInDatabase(hashX);
 
         var imgY = GetImgFromDatabase(hashY);
-        imgY.Score = imgY.Score + 1;
         imgY.LastView = DateTime.Now;
         var message = GetNext(hashY, hashX);
         progress?.Report(message);
@@ -347,7 +352,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         DeleteImgInDatabase(hashY);
 
         var imgX = GetImgFromDatabase(hashX);
-        imgX.Score = imgX.Score + 1;
         imgX.LastView = DateTime.Now;
         var message = GetNext(hashX, hashY);
         progress?.Report(message);

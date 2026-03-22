@@ -1,4 +1,5 @@
 ﻿using ImgMzx;
+using Microsoft.Data.Sqlite;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -158,5 +159,36 @@ WHERE LENGTH(vector) = 0;
 
         sw.Stop();
         Debug.WriteLine($"Done. Updated {updated} distances in {sw.Elapsed.TotalSeconds:F1} s.");
+    }
+
+    [TestMethod]
+    public void PopulateRecent()
+    {
+        using var images = new Images(
+            AppConsts.FileDatabase,
+            AppConsts.FileVit);
+        var progressMessages = new List<string>();
+        var progress = new Progress<string>(msg => progressMessages.Add(msg));
+        images.Load(progress);
+
+        var conn = images.GetSqliteConnection();
+
+        using (var deleteCmd = new SqliteCommand(
+            $"DELETE FROM {AppConsts.TableRecent}", conn)) {
+            deleteCmd.ExecuteNonQuery();
+        }
+
+        var hashes = images.GetAllHashes().ToArray();
+        int total = Math.Min(AppConsts.RecentLength, hashes.Length);
+        for (var i = 0; i < total; i++) {
+            var vector = images.GetVector(hashes[i]);
+            var vectorBytes = MemoryMarshal.AsBytes(vector).ToArray();
+            using var insertCmd = new SqliteCommand(
+                $"INSERT INTO {AppConsts.TableRecent} ([{AppConsts.AttributeIndex}], {AppConsts.AttributeVector}) VALUES (@index, @vector)",
+                conn);
+            insertCmd.Parameters.AddWithValue("@index", i);
+            insertCmd.Parameters.AddWithValue("@vector", vectorBytes);
+            insertCmd.ExecuteNonQuery();
+        }
     }
 }
