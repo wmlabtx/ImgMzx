@@ -33,7 +33,6 @@ public partial class Images : IDisposable
                 score: 0,
                 lastCheck: DateTime.MinValue,
                 distance: 0,
-                history: string.Empty,
                 images: this);
 
         if (!AppHash.IsValidHash(hash) || !ContainsImg(hash)) {

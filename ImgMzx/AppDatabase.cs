@@ -460,32 +460,18 @@ public static class AppDatabase
     public static string GetXByLastView(IProgress<string>? progress)
     {
         lock (_lock) {
-            var sb1 = new StringBuilder();
-            sb1.Append("SELECT ");
-            sb1.Append($"(MAX({AppConsts.AttributeLastView}) - MIN({AppConsts.AttributeLastView})) / 2 as e ");
-            sb1.Append($"FROM {AppConsts.TableImages};");
+            var sb = new StringBuilder();
+            sb.Append($"SELECT {AppConsts.AttributeHash} ");
+            sb.Append($"FROM {AppConsts.TableImages} ");
+            sb.Append($"WHERE {AppConsts.AttributeScore} = (SELECT MIN({AppConsts.AttributeScore}) FROM {AppConsts.TableImages}) ");
+            sb.Append($"ORDER BY {AppConsts.AttributeLastView} ASC ");
+            sb.Append("LIMIT 1;");
 
-            long e;
-            using (var cmd1 = new SqliteCommand(sb1.ToString(), _sqlConnection))
-            using (var reader1 = cmd1.ExecuteReader()) {
-                if (!reader1.HasRows || !reader1.Read()) {
-                    return string.Empty;
-                }
-                e = Math.Max(1000000, reader1.GetInt64(0));
-            }
+            using var cmd = new SqliteCommand(sb.ToString(), _sqlConnection);
+            using var reader = cmd.ExecuteReader();
 
-            var sb2 = new StringBuilder();
-            sb2.Append($"SELECT {AppConsts.AttributeHash} ");
-            sb2.Append($"FROM {AppConsts.TableImages} ");
-            sb2.Append($"ORDER BY ({AppConsts.AttributeLastView} + (RANDOM() % @e)) ASC ");
-            sb2.Append($"LIMIT 1;");
-
-            using var cmd2 = new SqliteCommand(sb2.ToString(), _sqlConnection);
-            cmd2.Parameters.AddWithValue("@e", e);
-            using var reader2 = cmd2.ExecuteReader();
-
-            if (reader2.HasRows && reader2.Read()) {
-                return reader2.GetString(0);
+            if (reader.HasRows && reader.Read()) {
+                return reader.GetString(0);
             }
 
             return string.Empty;

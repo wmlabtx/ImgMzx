@@ -11,7 +11,6 @@ public struct Img(
     int score,
     string next,
     float distance,
-    string history,
     Images images)
 {
     private readonly Images _images = images;
@@ -95,16 +94,6 @@ public struct Img(
         {
             _distance = value;
             _images.UpdateImgInDatabase(_hash, AppConsts.AttributeDistance, value);
-        }
-    }
-
-    private string _history = history;
-    public string History {
-        get { return _history; }
-        set
-        {
-            _history = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeHistory, value);
         }
     }
 

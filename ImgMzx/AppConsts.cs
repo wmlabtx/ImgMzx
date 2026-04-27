@@ -36,11 +36,7 @@ public static class AppConsts
     public const string AttributeLastCheck = "lastcheck";
     public const string AttributeNext = "next";
     public const string AttributeDistance = "distance";
-    public const string AttributeHistory = "history";
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
-
-    public const string TableRecent = "recent";
-    public const string AttributeIndex = "index";
 }

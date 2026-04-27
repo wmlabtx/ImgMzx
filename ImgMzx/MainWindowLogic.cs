@@ -164,13 +164,8 @@ public sealed partial class MainWindow
             var sb = new StringBuilder();
             sb.Append($"{ix.Hash[..4]}.{ix.Extension}");
 
-            if (ix.Img.History.Length > 0) {
-                var size = ix.Img.History.Length / AppConsts.HashLength;
-                sb.Append($" [{size}]");
-            }
-
             if (ix.Img.Score > 0) {
-                sb.Append($" *{ix.Img.Score}");
+                sb.Append($" [{ix.Img.Score}]");
             }
 
             sb.AppendLine();
@@ -190,7 +185,7 @@ public sealed partial class MainWindow
 
             pLabels[index].Text = sb.ToString();
             pLabels[index].Background = System.Windows.Media.Brushes.White;
-            if (ix.Img.History.Length == 0 && ix.Img.Score == 0) {
+            if (ix.Img.Score == 0) {
                 pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
             }
         }

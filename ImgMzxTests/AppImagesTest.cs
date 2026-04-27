@@ -83,18 +83,6 @@ WHERE LENGTH(vector) = 0;
             return string.Empty;
         }
 
-        var hs = Helper.HistoryFromString(img.History);
-        var hsnew = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var h in hs) {
-            if (images.ContainsImg(h)) {
-                hsnew.Add(h);
-            }
-        }
-
-        if (hs.Count != hsnew.Count) {
-            img.History = Helper.HistoryToString(hsnew);
-        }
-
         var oldNext = img.Next;
         if (string.IsNullOrEmpty(oldNext)) {
             oldNext = "XXXX";
@@ -105,7 +93,6 @@ WHERE LENGTH(vector) = 0;
         var distance = 1f;
         for (var i = 0; i < beam.Length; i++) {
             if (beam[i].Hash.Equals(hash)) continue;
-            if (hsnew.Contains(beam[i].Hash)) continue;
             next = beam[i].Hash;
             distance = beam[i].Distance;
             break;
@@ -159,36 +146,5 @@ WHERE LENGTH(vector) = 0;
 
         sw.Stop();
         Debug.WriteLine($"Done. Updated {updated} distances in {sw.Elapsed.TotalSeconds:F1} s.");
-    }
-
-    [TestMethod]
-    public void PopulateRecent()
-    {
-        using var images = new Images(
-            AppConsts.FileDatabase,
-            AppConsts.FileVit);
-        var progressMessages = new List<string>();
-        var progress = new Progress<string>(msg => progressMessages.Add(msg));
-        images.Load(progress);
-
-        var conn = images.GetSqliteConnection();
-
-        using (var deleteCmd = new SqliteCommand(
-            $"DELETE FROM {AppConsts.TableRecent}", conn)) {
-            deleteCmd.ExecuteNonQuery();
-        }
-
-        var hashes = images.GetAllHashes().ToArray();
-        int total = Math.Min(AppConsts.RecentLength, hashes.Length);
-        for (var i = 0; i < total; i++) {
-            var vector = images.GetVector(hashes[i]);
-            var vectorBytes = MemoryMarshal.AsBytes(vector).ToArray();
-            using var insertCmd = new SqliteCommand(
-                $"INSERT INTO {AppConsts.TableRecent} ([{AppConsts.AttributeIndex}], {AppConsts.AttributeVector}) VALUES (@index, @vector)",
-                conn);
-            insertCmd.Parameters.AddWithValue("@index", i);
-            insertCmd.Parameters.AddWithValue("@vector", vectorBytes);
-            insertCmd.ExecuteNonQuery();
-        }
     }
 }
