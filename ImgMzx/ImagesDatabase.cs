@@ -1,7 +1,6 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using SixLabors.ImageSharp.Processing;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace ImgMzx;
 
@@ -52,18 +51,6 @@ public partial class Images : IDisposable
         }
     }
 
-    private static readonly long _minValidTicks = new DateTime(1970, 1, 1).Ticks;
-
-    private void FixTicksInDatabase(string hash, string column, long ticks)
-    {
-        using var sqlCommand = new SqliteCommand(
-            $"UPDATE {AppConsts.TableImages} SET {column} = @ticks WHERE {AppConsts.AttributeHash} = @hash",
-            _sqlConnection);
-        sqlCommand.Parameters.AddWithValue("@ticks", ticks);
-        sqlCommand.Parameters.AddWithValue("@hash", hash);
-        sqlCommand.ExecuteNonQuery();
-    }
-
     public void AddImgToDatabase(Img img, Span<float> vector)
     {
         lock (_lock) {
@@ -79,6 +66,8 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeScore},
                 {AppConsts.AttributeLastCheck},
                 {AppConsts.AttributeDistance},
+                {AppConsts.AttributeFamily},
+                {AppConsts.AttributeFlag},
                 {AppConsts.AttributeVector}
             ) VALUES (
                 @{AppConsts.AttributeHash},
@@ -89,6 +78,8 @@ public partial class Images : IDisposable
                 @{AppConsts.AttributeScore},
                 @{AppConsts.AttributeLastCheck},
                 @{AppConsts.AttributeDistance},
+                @{AppConsts.AttributeFamily},
+                @{AppConsts.AttributeFlag},
                 @{AppConsts.AttributeVector}
             );";
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
@@ -99,6 +90,8 @@ public partial class Images : IDisposable
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeScore}", img.Score);
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.LastCheck.Ticks);
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", img.Family);
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFlag}", img.Flag);
             var vectorBytes = MemoryMarshal.Cast<float, byte>(GetVector(img.Hash)).ToArray();
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", vectorBytes);
             sqlCommand.ExecuteNonQuery();
@@ -117,7 +110,9 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeNext},
                 {AppConsts.AttributeScore},
                 {AppConsts.AttributeLastCheck},
-                {AppConsts.AttributeDistance}
+                {AppConsts.AttributeDistance},
+                {AppConsts.AttributeFamily},
+                {AppConsts.AttributeFlag}
             FROM {AppConsts.TableImages}
             WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash};";
             using var sqlCommand = new SqliteCommand(sql, _sqlConnection);
@@ -133,6 +128,8 @@ public partial class Images : IDisposable
                     score: (int)reader.GetInt64(5),
                     lastCheck: new DateTime(reader.GetInt64(6)),
                     distance: reader.GetFloat(7),
+                    family: (int)reader.GetInt64(8),
+                    flag: (int)reader.GetInt64(9),
                     images: this);
             }
 
@@ -145,6 +142,8 @@ public partial class Images : IDisposable
                 score: 0,
                 lastCheck: DateTime.MinValue,
                 distance: 0,
+                family: 0,
+                flag: 0,
                 images: this);
         }
     }
@@ -176,30 +175,38 @@ public partial class Images : IDisposable
     public string GetHashLastView()
     {
         lock (_lock) {
-            /*
-            var sql = $@"
-                SELECT c.{AppConsts.AttributeHash}
-                FROM {AppConsts.TableImages} c
-                JOIN {AppConsts.TableImages} n ON c.{AppConsts.AttributeNext} = n.{AppConsts.AttributeHash}
-                ORDER BY n.{AppConsts.AttributeScore} DESC, c.{AppConsts.AttributeLastView} ASC
-                LIMIT 1;";
-            */
+            var resetDone = false;
+            while (true) {
+                if (_viewPool.Count == 0) {
+                    foreach (var h in GetHashesByFlag(0)) {
+                        _viewPoolIndex[h] = _viewPool.Count;
+                        _viewPool.Add(h);
+                    }
 
-            var sql = $@"
-                SELECT {AppConsts.AttributeHash}
-                FROM {AppConsts.TableImages}
-                ORDER BY RANDOM()
-                LIMIT 1;";
+                    if (_viewPool.Count == 0) {
+                        if (resetDone) {
+                            return string.Empty;
+                        }
 
+                        ResetAllFlags();
+                        foreach (var h in GetAllHashes()) {
+                            var img = GetImgFromDatabase(h);
+                            img.ResetFlag();
+                        }
 
-            using var cmd = new SqliteCommand(sql, _sqlConnection);
-            using var reader = cmd.ExecuteReader();
+                        resetDone = true;
+                        continue;
+                    }
+                }
 
-            if (reader.HasRows && reader.Read()) {
-                return reader.GetString(0);
+                var hash = PickBestFromViewPool();
+                RemoveFromViewPool(hash);
+
+                if (_hashToIndex.ContainsKey(hash)) {
+                    UpdateImgInDatabase(hash, AppConsts.AttributeFlag, 1);
+                    return hash;
+                }
             }
-
-            return string.Empty;
         }
     }
 
@@ -211,7 +218,7 @@ public partial class Images : IDisposable
                 _sqlConnection);
             var result = command.ExecuteScalar();
             var ticks = Convert.ToInt64(result);
-            return ticks >= _minValidTicks ? new DateTime(ticks) : DateTime.Now;
+            return new DateTime(ticks);
         }
     }
 
@@ -223,27 +230,108 @@ public partial class Images : IDisposable
                 _sqlConnection);
             var result = command.ExecuteScalar();
             var ticks = Convert.ToInt64(result);
-            return ticks >= _minValidTicks ? new DateTime(ticks) : new DateTime(1990, 1, 1);
+            return new DateTime(ticks);
         }
     }
 
-    private string GetNearGroup()
+    public int GetAvailableFamilyFromDatabase()
     {
         lock (_lock) {
-            var sql = $@"
-                SELECT
-                    MIN(MAX(c.{AppConsts.AttributeLastView}, COALESCE(n.{AppConsts.AttributeLastView}, 0))),
-                    COUNT(*)
-                FROM {AppConsts.TableImages} c
-                LEFT JOIN {AppConsts.TableImages} n ON n.{AppConsts.AttributeHash} = c.{AppConsts.AttributeNext}
-                WHERE c.{AppConsts.AttributeScore} = (SELECT MIN({AppConsts.AttributeScore}) FROM {AppConsts.TableImages});";
-            using var cmd = new SqliteCommand(sql, _sqlConnection);
-            using var reader = cmd.ExecuteReader();
-            if (!reader.Read()) return string.Empty;
-            var minEffectiveTicks = reader.GetInt64(0);
-            var count = reader.GetInt32(1);
-            var daysOld = (int)(DateTime.Now - new DateTime(minEffectiveTicks)).TotalDays;
-            return $"{daysOld}:{count}";
+            using var cmd = _sqlConnection.CreateCommand();
+            cmd.CommandText = $@"
+                WITH used AS (
+                    SELECT DISTINCT {AppConsts.AttributeFamily} AS f 
+                    FROM {AppConsts.TableImages} 
+                    WHERE {AppConsts.AttributeFamily} > 0
+                ),
+                seq AS (
+                    SELECT 1 AS n
+                    UNION ALL
+                    SELECT n + 1 FROM seq WHERE n < (SELECT COALESCE(MAX(f), 0) + 1 FROM used)
+                )
+                SELECT MIN(n) FROM seq WHERE n NOT IN (SELECT f FROM used);";
+            var minGap = cmd.ExecuteScalar();
+            if (minGap == null || minGap == DBNull.Value) {
+                return 1;
+            }
+
+            return Convert.ToInt32(minGap);
+        }
+    }
+
+    public int GetFamilySizeFromDatabase(int family)
+    {
+        lock (_lock) {
+            using var cmd = _sqlConnection.CreateCommand();
+            cmd.CommandText = $@"
+                SELECT COUNT(*)
+                FROM {AppConsts.TableImages}
+                WHERE {AppConsts.AttributeFamily} = @family;";
+            cmd.Parameters.AddWithValue("@family", family);
+            var countObj = cmd.ExecuteScalar();
+            if (countObj == null || countObj == DBNull.Value) {
+                return 0;
+            }
+            return Convert.ToInt32(countObj);
+        }
+    }
+
+    private const int ViewPoolSampleSize = 50;
+
+    private string PickBestFromViewPool()
+    {
+        /*
+        var k = Math.Min(ViewPoolSampleSize, _viewPool.Count);
+        var sample = new List<string>(k);
+        for (var i = 0; i < k; i++) {
+            sample.Add(_viewPool[Random.Shared.Next(_viewPool.Count)]);
+        }
+
+        var placeholders = string.Join(",", Enumerable.Range(0, sample.Count).Select(i => $"@h{i}"));
+        using var cmd = new SqliteCommand(
+            $@"SELECT i1.{AppConsts.AttributeHash}
+               FROM {AppConsts.TableImages} i1
+               JOIN {AppConsts.TableImages} i2 ON i1.{AppConsts.AttributeNext} = i2.{AppConsts.AttributeHash}
+               WHERE i1.{AppConsts.AttributeHash} IN ({placeholders})
+               ORDER BY i2.{AppConsts.AttributeScore} DESC
+               LIMIT 1",
+            _sqlConnection);
+        for (var i = 0; i < sample.Count; i++) {
+            cmd.Parameters.AddWithValue($"@h{i}", sample[i]);
+        }
+
+        var result = cmd.ExecuteScalar()?.ToString();
+        if (!string.IsNullOrEmpty(result)) {
+            return result;
+        }
+        */
+
+        return _viewPool[Random.Shared.Next(_viewPool.Count)];
+    }
+
+    private List<string> GetHashesByFlag(int flag)
+    {
+        lock (_lock) {
+            using var command = new SqliteCommand(
+                $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = @flag",
+                _sqlConnection);
+            command.Parameters.AddWithValue("@flag", flag);
+            using var reader = command.ExecuteReader();
+            var hashes = new List<string>();
+            while (reader.Read()) {
+                hashes.Add(reader.GetString(0));
+            }
+            return hashes;
+        }
+    }
+
+    private void ResetAllFlags()
+    {
+        lock (_lock) {
+            using var command = new SqliteCommand(
+                $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeFlag} = 0",
+                _sqlConnection);
+            command.ExecuteNonQuery();
         }
     }
 }

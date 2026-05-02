@@ -11,6 +11,8 @@ public struct Img(
     int score,
     string next,
     float distance,
+    int family,
+    int flag,
     Images images)
 {
     private readonly Images _images = images;
@@ -95,6 +97,30 @@ public struct Img(
             _distance = value;
             _images.UpdateImgInDatabase(_hash, AppConsts.AttributeDistance, value);
         }
+    }
+
+    private int _family = family;
+    public int Family {
+        get { return _family; }
+        set {
+            _family = value;
+            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeFamily, value);
+        }
+    }
+
+    private int _flag = flag;
+    public int Flag {
+        get { return _flag; }
+        set
+        {
+            _flag = value;
+            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeFlag, value);
+        }
+    }
+
+    public void ResetFlag()
+    {
+        _flag = 0;
     }
 
     public readonly ReadOnlySpan<float> Vector {

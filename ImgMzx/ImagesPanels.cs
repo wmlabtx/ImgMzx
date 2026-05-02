@@ -2,6 +2,7 @@
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using System.Diagnostics;
+using System.Windows.Media;
 
 namespace ImgMzx;
 
@@ -33,6 +34,8 @@ public partial class Images : IDisposable
                 score: 0,
                 lastCheck: DateTime.MinValue,
                 distance: 0,
+                family: 0,
+                flag: 0,
                 images: this);
 
         if (!AppHash.IsValidHash(hash) || !ContainsImg(hash)) {
@@ -77,13 +80,21 @@ public partial class Images : IDisposable
         Debug.Assert(imagedata != null);
         Debug.Assert(image != null);
 
+        ImageSource[]? animFrames = null;
+        int[]? animDelays = null;
+        if (AppBitmap.IsAnimated(image)) {
+            (animFrames, animDelays) = AppBitmap.GetAnimatedSources(image);
+        }
+
         var imgpanel = new Panel {
             Hash = hash,
             Img = img,
             Size = imagedata.LongLength,
             Image = image,
             Extension = extension,
-            Taken = taken
+            Taken = taken,
+            AnimatedFrames = animFrames,
+            FrameDelaysMs = animDelays
         };
 
         _imgPanels[0] = imgpanel;
@@ -109,6 +120,12 @@ public partial class Images : IDisposable
         Debug.Assert(imagedata != null);
         Debug.Assert(image != null);
 
+        ImageSource[]? animFrames = null;
+        int[]? animDelays = null;
+        if (!ShowXOR && AppBitmap.IsAnimated(image)) {
+            (animFrames, animDelays) = AppBitmap.GetAnimatedSources(image);
+        }
+
         if (ShowXOR) {
             AppBitmap.Composite(_imgPanels[0]!.Value.Image, image, out var imagexor);
             image.Dispose();
@@ -121,7 +138,9 @@ public partial class Images : IDisposable
             Size = imagedata.LongLength,
             Image = image,
             Extension = extension,
-            Taken = taken
+            Taken = taken,
+            AnimatedFrames = animFrames,
+            FrameDelaysMs = animDelays
         };
 
         _imgPanels[1] = imgpanel;

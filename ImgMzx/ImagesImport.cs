@@ -62,6 +62,8 @@ public partial class Images : IDisposable
                                 lastCheck: GetLastCheck(),
                                 next: string.Empty,
                                 distance: 1f,
+                                family: 0,
+                                flag: 0,
                                 images: this);
 
                             AddImgToDatabase(imgnew, vector.AsSpan());

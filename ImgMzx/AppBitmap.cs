@@ -4,6 +4,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Bmp;
+using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Metadata.Profiles.Exif;
 using SixLabors.ImageSharp.Metadata.Profiles.Iptc;
 using SixLabors.ImageSharp.PixelFormats;
@@ -183,6 +184,24 @@ public static class AppBitmap
             Mode = ResizeMode.Stretch,
             Sampler = KnownResamplers.Lanczos3
         }));
+    }
+
+    public static bool IsAnimated(Image<Rgb24> image) => image.Frames.Count > 1;
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static (ImageSource[] Sources, int[] DelaysMs) GetAnimatedSources(Image<Rgb24> image)
+    {
+        var count = image.Frames.Count;
+        var sources = new ImageSource[count];
+        var delays = new int[count];
+        for (var i = 0; i < count; i++) {
+            var frame = image.Frames[i];
+            var webpMeta = frame.Metadata.GetFormatMetadata(WebpFormat.Instance);
+            delays[i] = (int)Math.Max(webpMeta.FrameDelay, 10u);
+            using var fi = image.Frames.CloneFrame(i);
+            sources[i] = GetImageSource(fi);
+        }
+        return (sources, delays);
     }
 
     public static void ClearCache()

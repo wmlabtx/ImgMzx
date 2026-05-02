@@ -1,4 +1,4 @@
-﻿namespace ImgMzx;
+namespace ImgMzx;
 
 public static class AppConsts
 {
@@ -18,6 +18,7 @@ public static class AppConsts
     public const int HashLength = 16;
     public const int VectorSize = 1024;
     public const int RecentLength = 1000;
+    public const int BeamRemoveCount = 10000;
 
     public const char CharEllipsis = '\u2026';
     public const char CharRightArrow = '\u2192';
@@ -36,6 +37,8 @@ public static class AppConsts
     public const string AttributeLastCheck = "lastcheck";
     public const string AttributeNext = "next";
     public const string AttributeDistance = "distance";
+    public const string AttributeFamily = "family";
+    public const string AttributeFlag = "flag";
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";

@@ -2,6 +2,7 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using SixLabors.ImageSharp.Processing;
 using System.Runtime.Versioning;
 
@@ -18,6 +19,7 @@ public sealed partial class MainWindow
     private readonly Images _images = new(AppConsts.FileDatabase, AppConsts.FileVit);
     
     private Progress<string>? _progress;
+    private readonly DispatcherTimer?[] _animTimers = new DispatcherTimer?[2];
 
     [SupportedOSPlatform("windows6.1")]
     private async void WindowLoaded()
@@ -146,6 +148,11 @@ public sealed partial class MainWindow
 
     private void DrawCanvas()
     {
+        for (var i = 0; i < 2; i++) {
+            _animTimers[i]?.Stop();
+            _animTimers[i] = null;
+        }
+
         var panels = new Panel?[2];
         panels[0] = _images.GetPanel(0);
         panels[1] = _images.GetPanel(1);
@@ -157,16 +164,43 @@ public sealed partial class MainWindow
         var pLabels = new[] { LabelLeft, LabelRight };
 
         for (var index = 0; index < 2; index++) {
-            pBoxes[index].Source = AppBitmap.GetImageSource(panels[index]!.Value.Image);
             var ix = panels[index]!.Value;
             var iy = panels[1 - index]!.Value;
 
+            if (ix.AnimatedFrames != null && ix.FrameDelaysMs != null) {
+                var frames = ix.AnimatedFrames;
+                var delays = ix.FrameDelaysMs;
+                var box = pBoxes[index];
+                var frameIdx = 0;
+                box.Source = frames[0];
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(delays[0]) };
+                timer.Tick += (s, e) => {
+                    frameIdx = (frameIdx + 1) % frames.Length;
+                    box.Source = frames[frameIdx];
+                    ((DispatcherTimer)s!).Interval = TimeSpan.FromMilliseconds(delays[frameIdx]);
+                };
+                timer.Start();
+                _animTimers[index] = timer;
+            } else {
+                pBoxes[index].Source = AppBitmap.GetImageSource(ix.Image);
+            }
+
             var sb = new StringBuilder();
             sb.Append($"{ix.Hash[..4]}.{ix.Extension}");
+            if (ix.AnimatedFrames != null) {
+                sb.Append($"[{ix.AnimatedFrames.Length}f]");
+            }
 
             if (ix.Img.Score > 0) {
                 sb.Append($" [{ix.Img.Score}]");
             }
+
+            /*
+            if (ix.Img.Family > 0) {
+                var fsize = _images.GetFamilySizeFromDatabase(ix.Img.Family);
+                sb.Append($" [{ix.Img.Family}:{fsize}]");
+            }
+            */
 
             sb.AppendLine();
 
@@ -184,10 +218,25 @@ public sealed partial class MainWindow
             sb.Append($" {meta}");
 
             pLabels[index].Text = sb.ToString();
-            pLabels[index].Background = System.Windows.Media.Brushes.White;
-            if (ix.Img.Score == 0) {
-                pLabels[index].Background = System.Windows.Media.Brushes.Yellow;
+            {
+                var t = Math.Min(ix.Img.Score, 10) / 10.0;
+                var r = (byte)(255 * (1 - t));
+                var g = (byte)(128 * t + 255 * (1 - t));
+                var b = (byte)(255 * (1 - t));
+                pLabels[index].Background = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(r, g, b));
             }
+
+            /*
+            if (ix.Img.Family > 0) {
+                if (ix.Img.Family == iy.Img.Family) {
+                    pLabels[index].Background = System.Windows.Media.Brushes.LightGreen;
+                }
+                else {
+                    pLabels[index].Background = System.Windows.Media.Brushes.YellowGreen;
+                }
+            }
+            */
         }
 
         RedrawCanvas();
@@ -296,7 +345,7 @@ public sealed partial class MainWindow
     private void FamilyAddClick()
     {
         DisableElements();
-        //_images.FamilyAdd();
+        _images.FamilyAdd();
         DrawCanvas();
         EnableElements();
     }
@@ -304,7 +353,7 @@ public sealed partial class MainWindow
     private void FamilyRemoveClick()
     {
         DisableElements();
-        //_images.FamilyRemove();
+        _images.FamilyRemove();
         DrawCanvas();
         EnableElements();
     }
