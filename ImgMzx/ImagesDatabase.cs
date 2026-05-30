@@ -259,6 +259,41 @@ public partial class Images : IDisposable
         }
     }
 
+    public string? FindClosestByFlag0(float[] vector)
+    {
+        List<string> candidates;
+        lock (_lock) {
+            using var command = new SqliteCommand(
+                $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = 0",
+                _sqlConnection);
+            using var reader = command.ExecuteReader();
+            candidates = [];
+            while (reader.Read()) {
+                candidates.Add(reader.GetString(0));
+            }
+        }
+
+        if (candidates.Count == 0) return null;
+
+        lock (_lock) {
+            var results = new (string Hash, float Distance)[candidates.Count];
+            Parallel.For(0, candidates.Count, i =>
+            {
+                var hash = candidates[i];
+                if (_hashToIndex.TryGetValue(hash, out var slot)) {
+                    var v = _vectors.AsSpan(slot * AppConsts.VectorSize, AppConsts.VectorSize);
+                    results[i] = (hash, Vit.ComputeDistance(vector, v));
+                }
+                else {
+                    results[i] = (hash, float.MaxValue);
+                }
+            });
+
+            var best = results.MinBy(r => r.Distance);
+            return best.Distance < float.MaxValue ? best.Hash : null;
+        }
+    }
+
     public int GetFamilySizeFromDatabase(int family)
     {
         lock (_lock) {
@@ -280,7 +315,6 @@ public partial class Images : IDisposable
 
     private string PickBestFromViewPool()
     {
-        /*
         var k = Math.Min(ViewPoolSampleSize, _viewPool.Count);
         var sample = new List<string>(k);
         for (var i = 0; i < k; i++) {
@@ -293,7 +327,7 @@ public partial class Images : IDisposable
                FROM {AppConsts.TableImages} i1
                JOIN {AppConsts.TableImages} i2 ON i1.{AppConsts.AttributeNext} = i2.{AppConsts.AttributeHash}
                WHERE i1.{AppConsts.AttributeHash} IN ({placeholders})
-               ORDER BY i2.{AppConsts.AttributeScore} DESC
+               ORDER BY i1.{AppConsts.AttributeScore} ASC
                LIMIT 1",
             _sqlConnection);
         for (var i = 0; i < sample.Count; i++) {
@@ -304,7 +338,6 @@ public partial class Images : IDisposable
         if (!string.IsNullOrEmpty(result)) {
             return result;
         }
-        */
 
         return _viewPool[Random.Shared.Next(_viewPool.Count)];
     }
@@ -313,7 +346,7 @@ public partial class Images : IDisposable
     {
         lock (_lock) {
             using var command = new SqliteCommand(
-                $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = @flag",
+                $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = @flag ORDER BY {AppConsts.AttributeScore} ASC, {AppConsts.AttributeLastView} ASC LIMIT 10000",
                 _sqlConnection);
             command.Parameters.AddWithValue("@flag", flag);
             using var reader = command.ExecuteReader();

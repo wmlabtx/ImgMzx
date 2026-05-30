@@ -1,10 +1,11 @@
-﻿using System.IO;
+﻿using FFMpegCore;
+using FFMpegCore.Pipes;
+using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Bmp;
-using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Metadata.Profiles.Exif;
 using SixLabors.ImageSharp.Metadata.Profiles.Iptc;
 using SixLabors.ImageSharp.PixelFormats;
@@ -21,9 +22,19 @@ public static class AppBitmap
         @"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+\-]\d{2}:\d{2})\b",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    public static bool IsVideo(ReadOnlySpan<byte> data) =>
+        data.Length >= 8 &&
+        data[4] == 0x66 && data[5] == 0x74 && data[6] == 0x79 && data[7] == 0x70;
+
+    public static bool IsVideo(byte[] data) => IsVideo(data.AsSpan());
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static string GetExtension(ReadOnlySpan<byte> data)
     {
+        if (IsVideo(data)) {
+            return "mp4";
+        }
+
         try
         {
             var signature = GetFileSignature(data);
@@ -34,9 +45,9 @@ public static class AppBitmap
 
             var format = SixLabors.ImageSharp.Image.DetectFormat(data);
             var extension = format.FileExtensions.First();
-                
+
             _formatCache.TryAdd(signature, extension);
-                
+
             return extension;
         }
         catch (UnknownImageFormatException)
@@ -186,22 +197,28 @@ public static class AppBitmap
         }));
     }
 
-    public static bool IsAnimated(Image<Rgb24> image) => image.Frames.Count > 1;
-
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (ImageSource[] Sources, int[] DelaysMs) GetAnimatedSources(Image<Rgb24> image)
+    public static Image<Rgb24>? GetVideoFirstFrame(byte[] data)
     {
-        var count = image.Frames.Count;
-        var sources = new ImageSource[count];
-        var delays = new int[count];
-        for (var i = 0; i < count; i++) {
-            var frame = image.Frames[i];
-            var webpMeta = frame.Metadata.GetFormatMetadata(WebpFormat.Instance);
-            delays[i] = (int)Math.Max(webpMeta.FrameDelay, 10u);
-            using var fi = image.Frames.CloneFrame(i);
-            sources[i] = GetImageSource(fi);
+        var key = Guid.NewGuid().ToString("N");
+        var url = AppVideoServer.RegisterTemp(key, data);
+        try {
+            using var outputMs = new MemoryStream();
+            FFMpegArguments
+                .FromUrlInput(new Uri(url))
+                .OutputToPipe(new StreamPipeSink(outputMs), o => o
+                    .WithVideoCodec("png")
+                    .WithFrameOutputCount(1)
+                    .ForceFormat("image2pipe"))
+                .ProcessSynchronously();
+            outputMs.Position = 0;
+            return SixLabors.ImageSharp.Image.Load<Rgb24>(outputMs);
         }
-        return (sources, delays);
+        catch {
+            return null;
+        }
+        finally {
+            AppVideoServer.UnregisterTemp(key);
+        }
     }
 
     public static void ClearCache()

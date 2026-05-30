@@ -338,11 +338,12 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         progress?.Report(message);
     }
 
-    public void DeleteLeft(IProgress<string>? progress)
+    public string? DeleteLeft(IProgress<string>? progress)
     {
         progress?.Report($"Calculating{AppConsts.CharEllipsis}");
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
+        var vectorX = GetVector(hashX).ToArray();
 
         AppFile.DeleteMex(hashX, DateTime.Now);
         DeleteImgInDatabase(hashX);
@@ -351,13 +352,16 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         imgY.LastView = DateTime.Now;
         var message = GetNext(hashY, hashX);
         progress?.Report(message);
+
+        return vectorX.Length == AppConsts.VectorSize ? FindClosestByFlag0(vectorX) : null;
     }
 
-    public void DeleteRight(IProgress<string>? progress)
+    public string? DeleteRight(IProgress<string>? progress)
     {
         progress?.Report($"Calculating{AppConsts.CharEllipsis}");
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
+        var vectorY = GetVector(hashY).ToArray();
 
         AppFile.DeleteMex(hashY, DateTime.Now);
         DeleteImgInDatabase(hashY);
@@ -366,6 +370,8 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         imgX.LastView = DateTime.Now;
         var message = GetNext(hashX, hashY);
         progress?.Report(message);
+
+        return vectorY.Length == AppConsts.VectorSize ? FindClosestByFlag0(vectorY) : null;
     }
 
     public static string Export(string hashE)
@@ -422,13 +428,8 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         if (!disposedValue) {
             if (disposing) {
                 lock (_lock) {
-                    if (_imgPanels[0]?.Image != null) {
-                        _imgPanels[0]?.Image.Dispose();
-                    }
-
-                    if (_imgPanels[1]?.Image != null) {
-                        _imgPanels[1]?.Image.Dispose();
-                    }
+                    _imgPanels[0]?.Image?.Dispose();
+                    _imgPanels[1]?.Image?.Dispose();
                 }
             }
 

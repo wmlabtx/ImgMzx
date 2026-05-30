@@ -47,8 +47,16 @@
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Image Name="BoxLeft" Stretch="Uniform" Grid.Column="0" Grid.Row="0"></Image>
-            <Image Name="BoxRight" Stretch="Uniform" Grid.Column="1" Grid.Row="0"></Image>
+            <Grid Grid.Column="0" Grid.Row="0">
+                <Image Name="BoxLeft" Stretch="Uniform" />
+                <MediaElement Name="VideoLeft" Stretch="Uniform" Visibility="Collapsed"
+                              LoadedBehavior="Manual" UnloadedBehavior="Stop" />
+            </Grid>
+            <Grid Grid.Column="1" Grid.Row="0">
+                <Image Name="BoxRight" Stretch="Uniform" />
+                <MediaElement Name="VideoRight" Stretch="Uniform" Visibility="Collapsed"
+                              LoadedBehavior="Manual" UnloadedBehavior="Stop" />
+            </Grid>
             <TextBlock Name="LabelLeft" Grid.Column="0" Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" TextAlignment="Center" FontWeight="Bold">
                 name<LineBreak/>size<LineBreak/>date
             </TextBlock>

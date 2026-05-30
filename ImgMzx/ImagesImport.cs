@@ -41,7 +41,10 @@ public partial class Images : IDisposable
                     found++;
                 }
                 else {
-                    using var image = AppBitmap.GetImage(orgimagedata);
+                    using var image = AppBitmap.IsVideo(orgimagedata)
+                        ? AppBitmap.GetVideoFirstFrame(orgimagedata)
+                        : AppBitmap.GetImage(orgimagedata);
+
                     if (image == null) {
                         AppFile.MoveToRecycleBin(orgfilename);
                         bad++;

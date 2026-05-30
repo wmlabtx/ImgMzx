@@ -1,8 +1,8 @@
-﻿using SixLabors.ImageSharp;
+using FFMpegCore;
+using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using System.Diagnostics;
-using System.Windows.Media;
 
 namespace ImgMzx;
 
@@ -19,12 +19,18 @@ public partial class Images : IDisposable
         out Img img,
         out Image<Rgb24>? image,
         out string extension,
-        out DateTime? taken)
+        out DateTime? taken,
+        out string? videoPath,
+        out int displayWidth,
+        out int displayHeight)
     {
         imagedata = null;
         image = null;
         extension = "xxx";
         taken = null;
+        videoPath = null;
+        displayWidth = 0;
+        displayHeight = 0;
         img = new Img(
                 hash: string.Empty,
                 rotateMode: RotateMode.None,
@@ -47,10 +53,25 @@ public partial class Images : IDisposable
             return false;
         }
 
-        extension = AppBitmap.GetExtension(imagedata);
+        var isVideo = AppBitmap.IsVideo(imagedata);
+        extension = isVideo ? "mp4" : AppBitmap.GetExtension(imagedata);
         img = GetImgFromDatabase(hash);
         if (string.IsNullOrEmpty(img.Hash)) {
             return false;
+        }
+
+        if (isVideo) {
+            videoPath = AppVideoServer.GetUrl(hash);
+            try {
+                var v = FFProbe.Analyse(videoPath).PrimaryVideoStream;
+                displayWidth = v?.Width ?? 1920;
+                displayHeight = v?.Height ?? 1080;
+            }
+            catch {
+                displayWidth = 1920;
+                displayHeight = 1080;
+            }
+            return true;
         }
 
         image = AppBitmap.GetImage(imagedata, img.RotateMode, img.FlipMode);
@@ -59,91 +80,91 @@ public partial class Images : IDisposable
         }
 
         taken = AppBitmap.GetDateTaken(image);
+        displayWidth = image.Width;
+        displayHeight = image.Height;
         return true;
     }
 
     public bool SetLeftPanel(string hash)
     {
-        if (_imgPanels[0]?.Image != null) {
-            _imgPanels[0]?.Image.Dispose();
-        }
+        var oldLeft = _imgPanels[0];
+        if (oldLeft?.VideoPath != null)
+            AppVideoServer.UncachePanel(oldLeft.Value.Hash);
+        oldLeft?.Image?.Dispose();
 
         if (!SetPanel(hash,
                 out var imagedata,
                 out var img,
                 out var image,
                 out var extension,
-                out var taken)) {
+                out var taken,
+                out var videoPath,
+                out var displayWidth,
+                out var displayHeight)) {
             return false;
         }
 
         Debug.Assert(imagedata != null);
-        Debug.Assert(image != null);
 
-        ImageSource[]? animFrames = null;
-        int[]? animDelays = null;
-        if (AppBitmap.IsAnimated(image)) {
-            (animFrames, animDelays) = AppBitmap.GetAnimatedSources(image);
-        }
+        if (videoPath != null)
+            AppVideoServer.CachePanel(hash, imagedata);
 
-        var imgpanel = new Panel {
+        _imgPanels[0] = new Panel {
             Hash = hash,
             Img = img,
             Size = imagedata.LongLength,
             Image = image,
             Extension = extension,
             Taken = taken,
-            AnimatedFrames = animFrames,
-            FrameDelaysMs = animDelays
+            VideoPath = videoPath,
+            DisplayWidth = displayWidth,
+            DisplayHeight = displayHeight
         };
-
-        _imgPanels[0] = imgpanel;
 
         return true;
     }
 
     public bool SetRightPanel(string hash)
     {
-        if (_imgPanels[1]?.Image != null) {
-            _imgPanels[1]?.Image.Dispose();
-        }
+        var oldRight = _imgPanels[1];
+        if (oldRight?.VideoPath != null)
+            AppVideoServer.UncachePanel(oldRight.Value.Hash);
+        oldRight?.Image?.Dispose();
 
         if (!SetPanel(hash,
                 out var imagedata,
                 out var img,
                 out var image,
                 out var extension,
-                out var taken)) {
+                out var taken,
+                out var videoPath,
+                out var displayWidth,
+                out var displayHeight)) {
             return false;
         }
 
         Debug.Assert(imagedata != null);
-        Debug.Assert(image != null);
 
-        ImageSource[]? animFrames = null;
-        int[]? animDelays = null;
-        if (!ShowXOR && AppBitmap.IsAnimated(image)) {
-            (animFrames, animDelays) = AppBitmap.GetAnimatedSources(image);
-        }
-
-        if (ShowXOR) {
-            AppBitmap.Composite(_imgPanels[0]!.Value.Image, image, out var imagexor);
+        if (image != null && ShowXOR && _imgPanels[0]?.Image != null) {
+            AppBitmap.Composite(_imgPanels[0]!.Value.Image!, image, out var imagexor);
             image.Dispose();
             image = imagexor;
         }
 
-        var imgpanel = new Panel {
+        if (videoPath != null)
+            AppVideoServer.CachePanel(hash, imagedata);
+
+        _imgPanels[1] = new Panel {
             Hash = hash,
             Img = img,
             Size = imagedata.LongLength,
             Image = image,
             Extension = extension,
             Taken = taken,
-            AnimatedFrames = animFrames,
-            FrameDelaysMs = animDelays
+            VideoPath = videoPath,
+            DisplayWidth = displayWidth,
+            DisplayHeight = displayHeight
         };
-
-        _imgPanels[1] = imgpanel;
 
         return true;
     }

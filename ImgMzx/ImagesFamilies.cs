@@ -1,24 +1,16 @@
-﻿using SixLabors.ImageSharp;
+using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace ImgMzx;
 
 public partial class Images : IDisposable
 {
-    private void UpdatePanel(int index, string hash, long size, Image<Rgb24> image, string extension, DateTime? taken)
+    private void UpdatePanel(int index, Panel panel)
     {
-        var img = GetImgFromDatabase(hash);
+        var img = GetImgFromDatabase(panel.Hash);
         if (img.Hash.Length == AppConsts.HashLength) {
-            var panelX = new Panel {
-                Hash = hash,
-                Img = img,
-                Size = size,
-                Image = image,
-                Extension = extension,
-                Taken = taken
-            };
-
-            _imgPanels[index] = panelX;
+            panel.Img = img;
+            _imgPanels[index] = panel;
         }
     }
 
@@ -40,34 +32,34 @@ public partial class Images : IDisposable
             var f = GetAvailableFamilyFromDatabase();
             imgX.Family = f;
             UpdateImgInDatabase(hashX, AppConsts.AttributeFamily, f);
-            UpdatePanel(0, hashX, panelX.Size, panelX.Image, panelX.Extension, panelX.Taken);
+            UpdatePanel(0, panelX);
 
-            imgX.Family = f;
+            imgY.Family = f;
             UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, f);
-            UpdatePanel(1, hashY, panelY.Size, panelY.Image, panelY.Extension, panelY.Taken);
+            UpdatePanel(1, panelY);
         }
         else if (fx != 0 && fy == 0) {
             imgY.Family = fx;
             UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, fx);
-            UpdatePanel(1, hashY, panelY.Size, panelY.Image, panelY.Extension, panelY.Taken);
+            UpdatePanel(1, panelY);
         }
         else if (fx == 0 && fy != 0) {
             imgX.Family = fy;
             UpdateImgInDatabase(hashX, AppConsts.AttributeFamily, fy);
-            UpdatePanel(0, hashX, panelX.Size, panelX.Image, panelX.Extension, panelX.Taken);
+            UpdatePanel(0, panelX);
         }
         else {
             var f = Math.Min(fx, fy);
-             if (fx != f) {
+            if (fx != f) {
                 imgX.Family = f;
                 UpdateImgInDatabase(hashX, AppConsts.AttributeFamily, f);
-                UpdatePanel(0, hashX, panelX.Size, panelX.Image, panelX.Extension, panelX.Taken);
+                UpdatePanel(0, panelX);
             }
 
             if (fy != f) {
                 imgY.Family = f;
                 UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, f);
-                UpdatePanel(1, hashY, panelY.Size, panelY.Image, panelY.Extension, panelY.Taken);
+                UpdatePanel(1, panelY);
             }
         }
     }
@@ -75,13 +67,11 @@ public partial class Images : IDisposable
     public void FamilyRemove()
     {
         var panelX = _imgPanels[0]!.Value;
-        var hashX = panelX.Hash;
-        UpdateImgInDatabase(hashX, AppConsts.AttributeFamily, 0);
-        UpdatePanel(0, hashX, panelX.Size, panelX.Image, panelX.Extension, panelX.Taken);
+        UpdateImgInDatabase(panelX.Hash, AppConsts.AttributeFamily, 0);
+        UpdatePanel(0, panelX);
 
         var panelY = _imgPanels[1]!.Value;
-        var hashY = panelY.Hash;
-        UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, 0);
-        UpdatePanel(1, hashY, panelY.Size, panelY.Image, panelY.Extension, panelY.Taken);
+        UpdateImgInDatabase(panelY.Hash, AppConsts.AttributeFamily, 0);
+        UpdatePanel(1, panelY);
     }
 }
