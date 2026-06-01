@@ -1,6 +1,3 @@
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-
 namespace ImgMzx;
 
 public partial class Images : IDisposable
@@ -29,14 +26,7 @@ public partial class Images : IDisposable
         var fx = imgX.Family;
         var fy = imgY.Family;
         if (fx == 0 && fy == 0) {
-            var f = GetAvailableFamilyFromDatabase();
-            imgX.Family = f;
-            UpdateImgInDatabase(hashX, AppConsts.AttributeFamily, f);
-            UpdatePanel(0, panelX);
-
-            imgY.Family = f;
-            UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, f);
-            UpdatePanel(1, panelY);
+            return;
         }
         else if (fx != 0 && fy == 0) {
             imgY.Family = fx;
@@ -49,18 +39,9 @@ public partial class Images : IDisposable
             UpdatePanel(0, panelX);
         }
         else {
-            var f = Math.Min(fx, fy);
-            if (fx != f) {
-                imgX.Family = f;
-                UpdateImgInDatabase(hashX, AppConsts.AttributeFamily, f);
-                UpdatePanel(0, panelX);
-            }
-
-            if (fy != f) {
-                imgY.Family = f;
-                UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, f);
-                UpdatePanel(1, panelY);
-            }
+            imgY.Family = fx;
+            UpdateImgInDatabase(hashY, AppConsts.AttributeFamily, fx);
+            UpdatePanel(1, panelY);
         }
     }
 
@@ -73,5 +54,22 @@ public partial class Images : IDisposable
         var panelY = _imgPanels[1]!.Value;
         UpdateImgInDatabase(panelY.Hash, AppConsts.AttributeFamily, 0);
         UpdatePanel(1, panelY);
+    }
+
+    public void FamilySet(int id) {
+        var panelX = _imgPanels[0]!.Value;
+        UpdateImgInDatabase(panelX.Hash, AppConsts.AttributeFamily, id);
+        UpdatePanel(0, panelX);
+    }
+
+    public string GetFamilyDescription(int family)
+    {
+        lock (_lock) {
+            if (_familyDescriptions.TryGetValue(family, out var description)) {
+                return description ?? family.ToString();
+            }
+
+            return family.ToString();
+        }
     }
 }

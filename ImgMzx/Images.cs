@@ -14,8 +14,7 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
     private readonly SqliteConnection _sqlConnection = new();
     private readonly Vit _vit = new(filevit);
     private readonly Panel?[] _imgPanels = { null, null };
-    private readonly List<string> _viewPool = [];
-    private readonly Dictionary<string, int> _viewPoolIndex = [];
+    private readonly Dictionary<int, string> _familyDescriptions = [];
 
     public bool ShowXOR;
     public Vit Vit => _vit;
@@ -40,6 +39,18 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             using var reader = command.ExecuteReader();
             if (reader.Read()) {
                 _maxImages = (int)reader.GetInt64(0);
+            }
+        }
+
+        lock (_lock) {
+            using var command = new SqliteCommand(
+                $@"SELECT {AppConsts.AttributeId}, {AppConsts.AttributeDescription} FROM {AppConsts.TableFamilies};",
+                _sqlConnection);
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
+            while (reader.Read()) {
+                var id = reader.GetInt32(0);
+                var description = reader.GetString(1);
+                _familyDescriptions[id] = description;
             }
         }
 
@@ -69,21 +80,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         _freeSlots = new Stack<int>(Enumerable.Range(counter, numVectors - counter).Reverse());
         progress?.Report($"Loaded {counter} vectors");
-    }
-
-    private int GetPoolSize(){
-        lock (_lock) {
-            return _viewPool.Count;
-        }
-    }
-
-    private int GetFlagsCount() {
-        lock (_lock) {
-            using var command = new SqliteCommand(
-                $@"SELECT COUNT(*) FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} != 0;",
-                _sqlConnection);
-            return (int)(long)command.ExecuteScalar()!;
-        }
     }
 
     public (string Hash, float Distance)[] GetBeam(ReadOnlySpan<float> query)
@@ -188,25 +184,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         }
     }
 
-    private void RemoveFromViewPool(string hash)
-    {
-        lock (_lock) {
-            if (!_viewPoolIndex.TryGetValue(hash, out var idx)) {
-                return;
-            }
-
-            var lastIdx = _viewPool.Count - 1;
-            if (idx < lastIdx) {
-                var last = _viewPool[lastIdx];
-                _viewPool[idx] = last;
-                _viewPoolIndex[last] = idx;
-            }
-
-            _viewPool.RemoveAt(lastIdx);
-            _viewPoolIndex.Remove(hash);
-        }
-    }
-
     public void Find(string? hashX, IProgress<string>? progress)
     {
         for (var i = 0; i < 10; i++) {
@@ -283,20 +260,12 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             var sb = new StringBuilder();
             var totalimages = GetCount();
             var diff = totalimages - _maxImages;
-            var poolsize = GetPoolSize();
-            var flagsCount = GetFlagsCount();
-            sb.Append($"{poolsize}/{flagsCount}/{totalimages} ({diff}) ");
+            var flagsCount = GetMinFlagCount();
+            sb.Append($"{flagsCount}/{totalimages} ({diff}) ");
             var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgX.LastCheck));
             sb.Append($"[{lastcheck} ago] ");
             sb.Append($"{imgX.Distance:F4} ");
             progress?.Report(sb.ToString());
-            lock (_lock) {
-                var beam = GetBeam(imgX.Vector);
-                foreach (var (beamHash, _) in beam.Take(AppConsts.BeamRemoveCount)) {
-                    RemoveFromViewPool(beamHash);
-                }
-            }
-
             break;
         }
         while (true);
@@ -316,22 +285,11 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         progress?.Report($"Calculating{AppConsts.CharEllipsis}");
 
-        if (imgX.Family == 0) {
-            imgX.Family = GetAvailableFamilyFromDatabase();
-        }
-
         imgX.Score = imgX.Score + 1;
-        imgX.Flag = 1;
         imgX.LastView = DateTime.Now;
         imgX.LastCheck = GetLastCheck();
         var message = GetNext(hashX);
         progress?.Report(message);
-
-        /*
-        if (imgY.Family == 0) {
-            imgY.Family = GetAvailableFamilyFromDatabase();
-        }
-        */
 
         imgY.LastView = DateTime.Now;
         message = GetNext(hashY);

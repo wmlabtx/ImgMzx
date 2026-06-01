@@ -106,6 +106,13 @@ namespace ImgMzx
             FamilyRemoveClick();
         }
 
+        private void FamilySetClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuItem mi && mi.Tag is string tag && int.TryParse(tag, out var familyId)) {
+                FamilySetClick(familyId);
+            }
+        }
+
         private void OnClosed(object sender, EventArgs e)
         {
             OnClosed();

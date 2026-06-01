@@ -42,4 +42,8 @@ public static class AppConsts
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
+
+    public const string TableFamilies = "families";
+    public const string AttributeId = "id";
+    public const string AttributeDescription = "description";
 }

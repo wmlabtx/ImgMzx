@@ -172,41 +172,47 @@ public partial class Images : IDisposable
         }
     }
 
+    public DateTime GetMinFlag()
+    {
+        lock (_lock) {
+            using var command = new SqliteCommand(
+                $@"SELECT MIN({AppConsts.AttributeFlag}) FROM {AppConsts.TableImages};",
+                _sqlConnection);
+            var result = command.ExecuteScalar();
+            var ticks = Convert.ToInt64(result);
+            return new DateTime(ticks);
+        }
+    }
+
+    public int GetMinFlagCount()
+    {
+        lock (_lock) {
+            using var command = new SqliteCommand(
+                $@"SELECT COUNT(*) FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = (SELECT MIN({AppConsts.AttributeFlag}) FROM {AppConsts.TableImages});",
+                _sqlConnection);
+            var result = command.ExecuteScalar();
+            return Convert.ToInt32(result);
+        }
+    }
+
     public string GetHashLastView()
     {
         lock (_lock) {
-            var resetDone = false;
-            while (true) {
-                if (_viewPool.Count == 0) {
-                    foreach (var h in GetHashesByFlag(0)) {
-                        _viewPoolIndex[h] = _viewPool.Count;
-                        _viewPool.Add(h);
-                    }
-
-                    if (_viewPool.Count == 0) {
-                        if (resetDone) {
-                            return string.Empty;
-                        }
-
-                        ResetAllFlags();
-                        foreach (var h in GetAllHashes()) {
-                            var img = GetImgFromDatabase(h);
-                            img.ResetFlag();
-                        }
-
-                        resetDone = true;
-                        continue;
-                    }
-                }
-
-                var hash = PickBestFromViewPool();
-                RemoveFromViewPool(hash);
-
-                if (_hashToIndex.ContainsKey(hash)) {
-                    UpdateImgInDatabase(hash, AppConsts.AttributeFlag, 1);
-                    return hash;
-                }
+            string hash;
+            int minFlag;
+            using (var cmd = new SqliteCommand(
+                $"SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeFlag} FROM {AppConsts.TableImages} " +
+                $"WHERE {AppConsts.AttributeFlag} = (SELECT MIN({AppConsts.AttributeFlag}) FROM {AppConsts.TableImages}) " +
+                $"ORDER BY RANDOM() LIMIT 1",
+                _sqlConnection)) {
+                using var reader = cmd.ExecuteReader();
+                if (!reader.Read()) return string.Empty;
+                hash = reader.GetString(0);
+                minFlag = (int)reader.GetInt64(1);
             }
+
+            UpdateImgInDatabase(hash, AppConsts.AttributeFlag, minFlag + 1);
+            return hash;
         }
     }
 
@@ -234,6 +240,7 @@ public partial class Images : IDisposable
         }
     }
 
+    /*
     public int GetAvailableFamilyFromDatabase()
     {
         lock (_lock) {
@@ -258,14 +265,25 @@ public partial class Images : IDisposable
             return Convert.ToInt32(minGap);
         }
     }
+    */
 
     public string? FindClosestByFlag0(float[] vector)
     {
         List<string> candidates;
         lock (_lock) {
+            int minFlag;
+            using (var cmd = new SqliteCommand(
+                $"SELECT MIN({AppConsts.AttributeFlag}) FROM {AppConsts.TableImages}",
+                _sqlConnection)) {
+                var result = cmd.ExecuteScalar();
+                if (result == null || result == DBNull.Value) return null;
+                minFlag = Convert.ToInt32(result);
+            }
+
             using var command = new SqliteCommand(
-                $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = 0",
+                $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = @flag",
                 _sqlConnection);
+            command.Parameters.AddWithValue("@flag", minFlag);
             using var reader = command.ExecuteReader();
             candidates = [];
             while (reader.Read()) {
@@ -311,60 +329,4 @@ public partial class Images : IDisposable
         }
     }
 
-    private const int ViewPoolSampleSize = 50;
-
-    private string PickBestFromViewPool()
-    {
-        var k = Math.Min(ViewPoolSampleSize, _viewPool.Count);
-        var sample = new List<string>(k);
-        for (var i = 0; i < k; i++) {
-            sample.Add(_viewPool[Random.Shared.Next(_viewPool.Count)]);
-        }
-
-        var placeholders = string.Join(",", Enumerable.Range(0, sample.Count).Select(i => $"@h{i}"));
-        using var cmd = new SqliteCommand(
-            $@"SELECT i1.{AppConsts.AttributeHash}
-               FROM {AppConsts.TableImages} i1
-               JOIN {AppConsts.TableImages} i2 ON i1.{AppConsts.AttributeNext} = i2.{AppConsts.AttributeHash}
-               WHERE i1.{AppConsts.AttributeHash} IN ({placeholders})
-               ORDER BY i1.{AppConsts.AttributeScore} ASC
-               LIMIT 1",
-            _sqlConnection);
-        for (var i = 0; i < sample.Count; i++) {
-            cmd.Parameters.AddWithValue($"@h{i}", sample[i]);
-        }
-
-        var result = cmd.ExecuteScalar()?.ToString();
-        if (!string.IsNullOrEmpty(result)) {
-            return result;
-        }
-
-        return _viewPool[Random.Shared.Next(_viewPool.Count)];
-    }
-
-    private List<string> GetHashesByFlag(int flag)
-    {
-        lock (_lock) {
-            using var command = new SqliteCommand(
-                $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = @flag ORDER BY {AppConsts.AttributeScore} ASC, {AppConsts.AttributeLastView} ASC LIMIT 10000",
-                _sqlConnection);
-            command.Parameters.AddWithValue("@flag", flag);
-            using var reader = command.ExecuteReader();
-            var hashes = new List<string>();
-            while (reader.Read()) {
-                hashes.Add(reader.GetString(0));
-            }
-            return hashes;
-        }
-    }
-
-    private void ResetAllFlags()
-    {
-        lock (_lock) {
-            using var command = new SqliteCommand(
-                $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeFlag} = 0",
-                _sqlConnection);
-            command.ExecuteNonQuery();
-        }
-    }
 }

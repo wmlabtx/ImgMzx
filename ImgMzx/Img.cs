@@ -118,11 +118,6 @@ public struct Img(
         }
     }
 
-    public void ResetFlag()
-    {
-        _flag = 0;
-    }
-
     public readonly ReadOnlySpan<float> Vector {
         get { return _images.GetVector(_hash); }
         set {
