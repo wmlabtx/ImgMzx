@@ -1,18 +1,14 @@
 ﻿using SixLabors.ImageSharp.Processing;
+using System.Text;
 
 namespace ImgMzx;
 
 public struct Img(
     string hash,
     DateTime lastView,
-    DateTime lastCheck,
     RotateMode rotateMode,
     FlipMode flipMode,
-    int score,
-    string next,
-    float distance,
-    int family,
-    int flag,
+    string history,
     Images images)
 {
     private readonly Images _images = images;
@@ -28,24 +24,7 @@ public struct Img(
         set
         {
             _lastView = value;
-            if (_lastView.Ticks > 0 && _lastView.Ticks < _minValidTicks)
-                throw new ArgumentException($"LastView too old: {_lastView} (ticks={_lastView.Ticks})");
             _images.UpdateImgInDatabase(_hash, AppConsts.AttributeLastView, value.Ticks);
-        }
-    }
-
-    private static readonly long _minValidTicks = new DateTime(1970, 1, 1).Ticks;
-
-    private DateTime _lastCheck = lastCheck;
-    public DateTime LastCheck
-    {
-        get { return _lastCheck; }
-        set
-        {
-            _lastCheck = value;
-            if (_lastCheck.Ticks > 0 && _lastCheck.Ticks < _minValidTicks)
-                throw new ArgumentException($"LastCheck too old: {_lastCheck} (ticks={_lastCheck.Ticks})");
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeLastCheck, value.Ticks);
         }
     }
 
@@ -69,53 +48,37 @@ public struct Img(
         }
     }
 
-    private int _score = score;
-    public int Score {
-        get { return _score; }
+    private string _history = history;
+    public string History {
+        get { return _history; }
         set
         {
-            _score = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeScore, value);
+            _history = value;
+            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeHistory, value);
         }
     }
 
-    private string _next = next;
-    public string Next {
-        get { return _next; }
-        set
-        {
-            _next = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeNext, value);
+    public SortedSet<string> FromHistory()
+    {
+        var set = new SortedSet<string>();
+        if (!string.IsNullOrEmpty(_history)) {
+            for (var offset = 0; offset < _history.Length; offset += AppConsts.HashLength) {
+                var hash = _history.Substring(offset, AppConsts.HashLength);
+                set.Add(hash);
+            }
         }
+
+        return set;
     }
 
-    private float _distance = distance;
-    public float Distance {
-        get { return _distance; }
-        set
-        {
-            _distance = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeDistance, value);
+    public void ToHistory(SortedSet<string> history)
+    {
+        var sb = new StringBuilder();
+        foreach (var hash in history) {
+            sb.Append(hash);
         }
-    }
 
-    private int _family = family;
-    public int Family {
-        get { return _family; }
-        set {
-            _family = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeFamily, value);
-        }
-    }
-
-    private int _flag = flag;
-    public int Flag {
-        get { return _flag; }
-        set
-        {
-            _flag = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeFlag, value);
-        }
+        History = sb.ToString();
     }
 
     public readonly ReadOnlySpan<float> Vector {

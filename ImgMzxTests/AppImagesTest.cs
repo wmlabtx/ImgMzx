@@ -78,6 +78,7 @@ WHERE LENGTH(vector) = 0;
 
     private static string ComputeNextAndDistance(Images images, string hash)
     {
+        /*
         var img = images.GetImgFromDatabase(hash);
         if (string.IsNullOrEmpty(img.Hash) || img.Vector.Length != AppConsts.VectorSize) {
             return string.Empty;
@@ -113,6 +114,9 @@ WHERE LENGTH(vector) = 0;
         }
 
         return sb.ToString();
+        */
+
+        return string.Empty;
     }
 
     [TestMethod]

@@ -33,17 +33,8 @@ public static class AppConsts
     public const string AttributeRotateMode = "rotatemode";
     public const string AttributeFlipMode = "flipmode";
     public const string AttributeLastView = "lastview";
-    public const string AttributeScore = "score";
-    public const string AttributeLastCheck = "lastcheck";
-    public const string AttributeNext = "next";
-    public const string AttributeDistance = "distance";
-    public const string AttributeFamily = "family";
-    public const string AttributeFlag = "flag";
+    public const string AttributeHistory = "history";
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";
-
-    public const string TableFamilies = "families";
-    public const string AttributeId = "id";
-    public const string AttributeDescription = "description";
 }

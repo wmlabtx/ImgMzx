@@ -62,36 +62,21 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeRotateMode},
                 {AppConsts.AttributeFlipMode},
                 {AppConsts.AttributeLastView},
-                {AppConsts.AttributeNext},
-                {AppConsts.AttributeScore},
-                {AppConsts.AttributeLastCheck},
-                {AppConsts.AttributeDistance},
-                {AppConsts.AttributeFamily},
-                {AppConsts.AttributeFlag},
+                {AppConsts.AttributeHistory},
                 {AppConsts.AttributeVector}
             ) VALUES (
                 @{AppConsts.AttributeHash},
                 @{AppConsts.AttributeRotateMode},
                 @{AppConsts.AttributeFlipMode},
                 @{AppConsts.AttributeLastView},
-                @{AppConsts.AttributeNext},
-                @{AppConsts.AttributeScore},
-                @{AppConsts.AttributeLastCheck},
-                @{AppConsts.AttributeDistance},
-                @{AppConsts.AttributeFamily},
-                @{AppConsts.AttributeFlag},
+                @{AppConsts.AttributeHistory},
                 @{AppConsts.AttributeVector}
             );";
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRotateMode}", (int)img.RotateMode);
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFlipMode}", (int)img.FlipMode);
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastView}", img.LastView.Ticks);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeNext}", img.Next);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeScore}", img.Score);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeLastCheck}", img.LastCheck.Ticks);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFamily}", img.Family);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeFlag}", img.Flag);
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHistory}", img.History);
             var vectorBytes = MemoryMarshal.Cast<float, byte>(GetVector(img.Hash)).ToArray();
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", vectorBytes);
             sqlCommand.ExecuteNonQuery();
@@ -107,12 +92,7 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeRotateMode},
                 {AppConsts.AttributeFlipMode},
                 {AppConsts.AttributeLastView},
-                {AppConsts.AttributeNext},
-                {AppConsts.AttributeScore},
-                {AppConsts.AttributeLastCheck},
-                {AppConsts.AttributeDistance},
-                {AppConsts.AttributeFamily},
-                {AppConsts.AttributeFlag}
+                {AppConsts.AttributeHistory}
             FROM {AppConsts.TableImages}
             WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash};";
             using var sqlCommand = new SqliteCommand(sql, _sqlConnection);
@@ -124,12 +104,7 @@ public partial class Images : IDisposable
                     rotateMode: Enum.Parse<RotateMode>(reader.GetInt64(1).ToString()),
                     flipMode: Enum.Parse<FlipMode>(reader.GetInt64(2).ToString()),
                     lastView: new DateTime(reader.GetInt64(3)),
-                    next: reader.GetString(4),
-                    score: (int)reader.GetInt64(5),
-                    lastCheck: new DateTime(reader.GetInt64(6)),
-                    distance: reader.GetFloat(7),
-                    family: (int)reader.GetInt64(8),
-                    flag: (int)reader.GetInt64(9),
+                    history: reader.GetString(4),
                     images: this);
             }
 
@@ -138,12 +113,7 @@ public partial class Images : IDisposable
                 rotateMode: RotateMode.None,
                 flipMode: FlipMode.None,
                 lastView: DateTime.MinValue,
-                next: string.Empty,
-                score: 0,
-                lastCheck: DateTime.MinValue,
-                distance: 0,
-                family: 0,
-                flag: 0,
+                history: string.Empty,
                 images: this);
         }
     }
@@ -161,34 +131,23 @@ public partial class Images : IDisposable
         }
     }
 
-    public string GetHashLastCheck()
+    public int GetMinHistory()
     {
         lock (_lock) {
             using var command = new SqliteCommand(
-                $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} ORDER BY {AppConsts.AttributeLastCheck} ASC LIMIT 1;",
+                $@"SELECT MIN(LENGTH({AppConsts.AttributeHistory})) FROM {AppConsts.TableImages};",
                 _sqlConnection);
             var result = command.ExecuteScalar();
-            return result?.ToString() ?? string.Empty;
+            var historylength = Convert.ToInt32(result);
+            return historylength / AppConsts.HashLength;
         }
     }
 
-    public DateTime GetMinFlag()
+    public int GetMinHistoryCount()
     {
         lock (_lock) {
             using var command = new SqliteCommand(
-                $@"SELECT MIN({AppConsts.AttributeFlag}) FROM {AppConsts.TableImages};",
-                _sqlConnection);
-            var result = command.ExecuteScalar();
-            var ticks = Convert.ToInt64(result);
-            return new DateTime(ticks);
-        }
-    }
-
-    public int GetMinFlagCount()
-    {
-        lock (_lock) {
-            using var command = new SqliteCommand(
-                $@"SELECT COUNT(*) FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = (SELECT MIN({AppConsts.AttributeFlag}) FROM {AppConsts.TableImages});",
+                $@"SELECT COUNT(*) FROM {AppConsts.TableImages} WHERE LENGTH({AppConsts.AttributeHistory}) = (SELECT MIN(LENGTH({AppConsts.AttributeHistory})) FROM {AppConsts.TableImages});",
                 _sqlConnection);
             var result = command.ExecuteScalar();
             return Convert.ToInt32(result);
@@ -198,21 +157,32 @@ public partial class Images : IDisposable
     public string GetHashLastView()
     {
         lock (_lock) {
-            string hash;
-            int minFlag;
-            using (var cmd = new SqliteCommand(
-                $"SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeFlag} FROM {AppConsts.TableImages} " +
-                $"WHERE {AppConsts.AttributeFlag} = (SELECT MIN({AppConsts.AttributeFlag}) FROM {AppConsts.TableImages}) " +
-                $"ORDER BY RANDOM() LIMIT 1",
-                _sqlConnection)) {
-                using var reader = cmd.ExecuteReader();
-                if (!reader.Read()) return string.Empty;
-                hash = reader.GetString(0);
-                minFlag = (int)reader.GetInt64(1);
-            }
+            var sql = $@"
+                WITH
+                half AS (
+                    SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeHistory}
+                    FROM {AppConsts.TableImages}
+                    ORDER BY {AppConsts.AttributeLastView} ASC
+                    LIMIT (SELECT COUNT(*) / 10 FROM {AppConsts.TableImages})
+                ),
+                grouped AS (
+                    SELECT {AppConsts.AttributeHash},
+                           LENGTH({AppConsts.AttributeHistory}) AS hlen,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY LENGTH({AppConsts.AttributeHistory})
+                               ORDER BY RANDOM()
+                           ) AS rn
+                    FROM half
+                )
+                SELECT {AppConsts.AttributeHash}
+                FROM grouped
+                WHERE rn = 1
+                ORDER BY RANDOM()
+                LIMIT 1";
 
-            UpdateImgInDatabase(hash, AppConsts.AttributeFlag, minFlag + 1);
-            return hash;
+            using var cmd = new SqliteCommand(sql, _sqlConnection);
+            var result = cmd.ExecuteScalar();
+            return result?.ToString() ?? string.Empty;
         }
     }
 
@@ -228,105 +198,26 @@ public partial class Images : IDisposable
         }
     }
 
-    public DateTime GetLastCheck()
+    public string? FindClosest(float[] vector)
     {
         lock (_lock) {
-            using var command = new SqliteCommand(
-                $@"SELECT MIN({AppConsts.AttributeLastCheck}) FROM {AppConsts.TableImages};",
-                _sqlConnection);
-            var result = command.ExecuteScalar();
-            var ticks = Convert.ToInt64(result);
-            return new DateTime(ticks);
-        }
-    }
-
-    /*
-    public int GetAvailableFamilyFromDatabase()
-    {
-        lock (_lock) {
-            using var cmd = _sqlConnection.CreateCommand();
-            cmd.CommandText = $@"
-                WITH used AS (
-                    SELECT DISTINCT {AppConsts.AttributeFamily} AS f 
-                    FROM {AppConsts.TableImages} 
-                    WHERE {AppConsts.AttributeFamily} > 0
-                ),
-                seq AS (
-                    SELECT 1 AS n
-                    UNION ALL
-                    SELECT n + 1 FROM seq WHERE n < (SELECT COALESCE(MAX(f), 0) + 1 FROM used)
-                )
-                SELECT MIN(n) FROM seq WHERE n NOT IN (SELECT f FROM used);";
-            var minGap = cmd.ExecuteScalar();
-            if (minGap == null || minGap == DBNull.Value) {
-                return 1;
+            var freeSlots = new HashSet<int>(_freeSlots);
+            var hashArray = _hashToIndex.Keys
+                .Where(h => !freeSlots.Contains(_hashToIndex[h]))
+                .ToArray();
+            if (hashArray.Length == 0) {
+                return null;
             }
 
-            return Convert.ToInt32(minGap);
-        }
-    }
-    */
-
-    public string? FindClosestByFlag0(float[] vector)
-    {
-        List<string> candidates;
-        lock (_lock) {
-            int minFlag;
-            using (var cmd = new SqliteCommand(
-                $"SELECT MIN({AppConsts.AttributeFlag}) FROM {AppConsts.TableImages}",
-                _sqlConnection)) {
-                var result = cmd.ExecuteScalar();
-                if (result == null || result == DBNull.Value) return null;
-                minFlag = Convert.ToInt32(result);
-            }
-
-            using var command = new SqliteCommand(
-                $"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages} WHERE {AppConsts.AttributeFlag} = @flag",
-                _sqlConnection);
-            command.Parameters.AddWithValue("@flag", minFlag);
-            using var reader = command.ExecuteReader();
-            candidates = [];
-            while (reader.Read()) {
-                candidates.Add(reader.GetString(0));
-            }
-        }
-
-        if (candidates.Count == 0) return null;
-
-        lock (_lock) {
-            var results = new (string Hash, float Distance)[candidates.Count];
-            Parallel.For(0, candidates.Count, i =>
-            {
-                var hash = candidates[i];
-                if (_hashToIndex.TryGetValue(hash, out var slot)) {
-                    var v = _vectors.AsSpan(slot * AppConsts.VectorSize, AppConsts.VectorSize);
-                    results[i] = (hash, Vit.ComputeDistance(vector, v));
-                }
-                else {
-                    results[i] = (hash, float.MaxValue);
-                }
+            var results = new (string Hash, float Distance)[hashArray.Length];
+            Parallel.For(0, hashArray.Length, i => {
+                var hash = hashArray[i];
+                var slot = _hashToIndex[hash];
+                var v = _vectors.AsSpan(slot * AppConsts.VectorSize, AppConsts.VectorSize);
+                results[i] = (hash, Vit.ComputeDistance(vector, v));
             });
 
-            var best = results.MinBy(r => r.Distance);
-            return best.Distance < float.MaxValue ? best.Hash : null;
+            return results.MinBy(r => r.Distance).Hash;
         }
     }
-
-    public int GetFamilySizeFromDatabase(int family)
-    {
-        lock (_lock) {
-            using var cmd = _sqlConnection.CreateCommand();
-            cmd.CommandText = $@"
-                SELECT COUNT(*)
-                FROM {AppConsts.TableImages}
-                WHERE {AppConsts.AttributeFamily} = @family;";
-            cmd.Parameters.AddWithValue("@family", family);
-            var countObj = cmd.ExecuteScalar();
-            if (countObj == null || countObj == DBNull.Value) {
-                return 0;
-            }
-            return Convert.ToInt32(countObj);
-        }
-    }
-
 }

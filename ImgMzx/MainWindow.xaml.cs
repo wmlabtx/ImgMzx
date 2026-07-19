@@ -96,23 +96,6 @@ namespace ImgMzx
             ToggleXorClick();
         }
 
-        private void FamilyAddClick(object sender, RoutedEventArgs e)
-        {
-            FamilyAddClick();
-        }
-
-        private void FamilyRemoveClick(object sender, RoutedEventArgs e)
-        {
-            FamilyRemoveClick();
-        }
-
-        private void FamilySetClick(object sender, RoutedEventArgs e)
-        {
-            if (sender is MenuItem mi && mi.Tag is string tag && int.TryParse(tag, out var familyId)) {
-                FamilySetClick(familyId);
-            }
-        }
-
         private void OnClosed(object sender, EventArgs e)
         {
             OnClosed();

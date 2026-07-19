@@ -57,20 +57,6 @@ public sealed partial class MainWindow
         _progress = new Progress<string>(message => Status.Text = message);
 
         await Task.Run(() => { _images.Load(_progress); }).ConfigureAwait(true);
-
-        foreach (var item in FamilyMenuItem.Items) {
-            if (item is System.Windows.Controls.MenuItem menuItem) {
-                var mi = item as System.Windows.Controls.MenuItem;
-                if (mi != null) {
-                    if (mi.Tag is string tag) {
-                        var familyId = int.Parse(tag);
-                        var familyDescription = _images.GetFamilyDescription(familyId);
-                        mi.Header = familyDescription;
-                    }
-                }
-            }
-        }
-
         await Task.Run(() => { _images.Find(null, _progress); }).ConfigureAwait(true);
 
         DrawCanvas();
@@ -189,7 +175,8 @@ public sealed partial class MainWindow
                 videoBoxes[index].Visibility = Visibility.Visible;
                 videoBoxes[index].Source = new Uri(ix.VideoPath);
                 videoBoxes[index].Play();
-            } else {
+            }
+            else {
                 pBoxes[index].Visibility = Visibility.Visible;
                 videoBoxes[index].Visibility = Visibility.Collapsed;
                 pBoxes[index].Source = AppBitmap.GetImageSource(ix.Image!);
@@ -198,14 +185,8 @@ public sealed partial class MainWindow
             var sb = new StringBuilder();
             sb.Append($"{ix.Hash[..4]}.{ix.Extension}");
 
-            if (ix.Img.Score > 0) {
-                sb.Append($" [{ix.Img.Score}]");
-            }
-
-            if (ix.Img.Family > 0) {
-                var fsize = _images.GetFamilySizeFromDatabase(ix.Img.Family);
-                var familyDescription = _images.GetFamilyDescription(ix.Img.Family);
-                sb.Append($" [{familyDescription}:{fsize}]");
+            if (ix.Img.History.Length > 0) {
+                sb.Append($" [{ix.Img.History.Length / AppConsts.HashLength}]");
             }
 
             sb.AppendLine();
@@ -225,26 +206,10 @@ public sealed partial class MainWindow
 
             pLabels[index].Text = sb.ToString();
 
-            pLabels[index].Background = System.Windows.Media.Brushes.White;
-            if (ix.Img.Family > 0) {
-                var h = (ix.Img.Family - 1) * 360.0 / 16;
-                const double s = 0.8, l = 0.8;
-                var c = (1 - Math.Abs(2 * l - 1)) * s;
-                var x = c * (1 - Math.Abs(h / 60.0 % 2 - 1));
-                var m = l - c / 2;
-                double r1, g1, b1;
-                if      (h < 60)  { r1 = c; g1 = x; b1 = 0; }
-                else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
-                else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
-                else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
-                else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
-                else              { r1 = c; g1 = 0; b1 = x; }
-                var r = (byte)((r1 + m) * 255);
-                var g = (byte)((g1 + m) * 255);
-                var b = (byte)((b1 + m) * 255);
-                pLabels[index].Background = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(r, g, b));
-            }
+            var length = ix.Img.History.Length / AppConsts.HashLength;
+            var t = (byte)(255 * (1.0 - Math.Min(length, 16) / 16.0));
+            pLabels[index].Background = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(t, 255, t));
         }
 
         RedrawCanvas();
@@ -357,7 +322,7 @@ public sealed partial class MainWindow
     private void FamilyAddClick()
     {
         DisableElements();
-        _images.FamilyAdd();
+        //_images.FamilyAdd();
         DrawCanvas();
         EnableElements();
     }
@@ -365,15 +330,7 @@ public sealed partial class MainWindow
     private void FamilyRemoveClick()
     {
         DisableElements();
-        _images.FamilyRemove();
-        DrawCanvas();
-        EnableElements();
-    }
-
-    private void FamilySetClick(int id)
-    {
-        DisableElements();
-        _images.FamilySet(id);
+        //_images.FamilyRemove();
         DrawCanvas();
         EnableElements();
     }

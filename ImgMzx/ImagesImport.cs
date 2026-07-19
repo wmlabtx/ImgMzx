@@ -61,12 +61,7 @@ public partial class Images : IDisposable
                                 rotateMode: RotateMode.None,
                                 flipMode: FlipMode.None,
                                 lastView: lastview,
-                                score: 0,
-                                lastCheck: GetLastCheck(),
-                                next: string.Empty,
-                                distance: 1f,
-                                family: 0,
-                                flag: 0,
+                                history: string.Empty,
                                 images: this);
 
                             AddImgToDatabase(imgnew, vector.AsSpan());

@@ -14,7 +14,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
     private readonly SqliteConnection _sqlConnection = new();
     private readonly Vit _vit = new(filevit);
     private readonly Panel?[] _imgPanels = { null, null };
-    private readonly Dictionary<int, string> _familyDescriptions = [];
 
     public bool ShowXOR;
     public Vit Vit => _vit;
@@ -39,18 +38,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             using var reader = command.ExecuteReader();
             if (reader.Read()) {
                 _maxImages = (int)reader.GetInt64(0);
-            }
-        }
-
-        lock (_lock) {
-            using var command = new SqliteCommand(
-                $@"SELECT {AppConsts.AttributeId}, {AppConsts.AttributeDescription} FROM {AppConsts.TableFamilies};",
-                _sqlConnection);
-            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
-            while (reader.Read()) {
-                var id = reader.GetInt32(0);
-                var description = reader.GetString(1);
-                _familyDescriptions[id] = description;
             }
         }
 
@@ -103,23 +90,20 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         }
     }
 
-    public string GetNext(string hash, string? hashD = null)
+    public (string next, string message) GetNext(string hash, string? hashD = null)
     {
         var sb = new StringBuilder();
-        var totalimages = GetCount();
-        var diff = totalimages - _maxImages;
-        sb.Append($"{totalimages} ({diff}) ");
 
         var img = GetImgFromDatabase(hash);
         if (string.IsNullOrEmpty(img.Hash)) {
-            return "image not found";
+            return ("image not found", string.Empty);
         }
 
         if (img.Vector.Length != AppConsts.VectorSize) {
             var imagedata = AppFile.ReadMex(hash);
             if (imagedata != null) {
                 using var image = AppBitmap.GetImage(imagedata);
-                if (image != null) {
+                 if (image != null) {
                     var vector = _vit.CalculateVector(image);
                     if (vector != null) {
                         img.Vector = vector;
@@ -128,86 +112,64 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             }
         }
         
-        var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(img.LastCheck));
-        sb.Append($"[{lastcheck} ago] ");
-
-        var oldNext = img.Next;
-        if (string.IsNullOrEmpty(oldNext)) {
-            oldNext = "XXXX";
-        }
-
         if (!string.IsNullOrEmpty(hashD)) {
             DeleteImgInDatabase(hashD);
         }
 
+        var history = img.FromHistory();
         lock (_lock) {
-            var next = oldNext;
-            var distance = 1f;
-            var skip = img.Score % 100;
+            
+            /*
+            var changed = false;
+            foreach (var h in history) {
+                if (ContainsImg(h)) {
+                    history.Remove(h);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                img.ToHistory(history);
+            }
+            */
+
             var beam = GetBeam(img.Vector);
+            var next = string.Empty;
+            var distance = 0f;
             for (var i = 0; i < beam.Length; i++) {
                 if (beam[i].Hash.Equals(hash)) {
                     continue;
                 }
 
-                if (skip > 0) {
-                    skip--;
+                if (history.Contains(beam[i].Hash)) {
+                    continue;
+                }
+
+                var imgY = GetImgFromDatabase(beam[i].Hash);
+                if (string.IsNullOrEmpty(imgY.Hash)) {
+                    continue;
+                }
+
+                distance = Vit.ComputeDistance(img.Vector, imgY.Vector);
+                if (img.History.Length != imgY.History.Length) {
                     continue;
                 }
 
                 next = beam[i].Hash;
-                distance = beam[i].Distance;
-                i++;
                 break;
             }
 
             if (string.IsNullOrEmpty(next)) {
-                return "no suitable next image found";
+                 return ("no suitable next image found", string.Empty);
             }
 
-            if (
-                !oldNext.Equals(next) ||
-                Math.Abs(img.Distance - distance) >= 0.0001f) {
-
-                if (!oldNext.Equals(next)) {
-                    img.Next = next;
-                }
-
-                if (Math.Abs(img.Distance - distance) >= 0.0001f) {
-                    sb.Append($"{img.Distance:F4} {AppConsts.CharRightArrow} {distance:F4} ");
-                    img.Distance = distance;
-                }
-            }
-
-            img.LastCheck = DateTime.Now;
-            return sb.ToString();
+            sb.Append($"{distance:F4} ");
+            return (next, sb.ToString());
         }
     }
 
     public void Find(string? hashX, IProgress<string>? progress)
     {
-        for (var i = 0; i < 10; i++) {
-            var hashToCheck = GetHashLastCheck();
-            if (hashToCheck == null) {
-                 progress?.Report("nothing to show");
-                return;
-            }
-
-            var message = GetNext(hashToCheck);
-            if (string.IsNullOrEmpty(message)) {
-                continue;
-            }
-
-            if (string.IsNullOrEmpty(message)) {
-                DeleteImgInDatabase(hashToCheck);
-                continue;
-            }
-
-            if (message.Contains(AppConsts.CharRightArrow)) {
-                progress?.Report(message);
-            }
-        }
-
         do {
             if (string.IsNullOrEmpty(hashX)) {
                 hashX = GetHashLastView();
@@ -243,28 +205,22 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
                 }
             }
 
-            var hashY = imgX.Next;
+            var result = GetNext(hashX);
+            var hashY = result.next;
+            var message = result.message;
             if (!SetRightPanel(hashY)) {
-                DeleteImgInDatabase(hashY);
-                hashY = null;
-                var message = GetNext(hashX);
-                progress?.Report(message);
-                imgX = GetImgFromDatabase(hashX);
-                hashY = imgX.Next;
-                if (!SetRightPanel(hashY)) {
-                    hashX = null;
-                    continue;
-                }
+                hashX = null;
+                continue;
             }
 
             var sb = new StringBuilder();
             var totalimages = GetCount();
             var diff = totalimages - _maxImages;
-            var flagsCount = GetMinFlagCount();
-            sb.Append($"{flagsCount}/{totalimages} ({diff}) ");
-            var lastcheck = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgX.LastCheck));
-            sb.Append($"[{lastcheck} ago] ");
-            sb.Append($"{imgX.Distance:F4} ");
+            var historyCount = GetMinHistoryCount();
+            sb.Append($"{historyCount}/{totalimages} ({diff}) ");
+            var lastview = Helper.TimeIntervalToString(DateTime.Now.Subtract(imgX.LastView));
+            sb.Append($"[{lastview} ago] ");
+            sb.Append($"{message} ");
             progress?.Report(sb.ToString());
             break;
         }
@@ -285,15 +241,17 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         progress?.Report($"Calculating{AppConsts.CharEllipsis}");
 
-        imgX.Score = imgX.Score + 1;
         imgX.LastView = DateTime.Now;
-        imgX.LastCheck = GetLastCheck();
-        var message = GetNext(hashX);
-        progress?.Report(message);
+        var hsX = imgX.FromHistory();
+        if (hsX.Add(hashY)) {
+            imgX.ToHistory(hsX);
+        }
 
         imgY.LastView = DateTime.Now;
-        message = GetNext(hashY);
-        progress?.Report(message);
+        var hsY = imgY.FromHistory();
+        if (hsY.Add(hashX)) {
+            imgY.ToHistory(hsY);
+        }
     }
 
     public string? DeleteLeft(IProgress<string>? progress)
@@ -308,10 +266,8 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         var imgY = GetImgFromDatabase(hashY);
         imgY.LastView = DateTime.Now;
-        var message = GetNext(hashY, hashX);
-        progress?.Report(message);
 
-        return vectorX.Length == AppConsts.VectorSize ? FindClosestByFlag0(vectorX) : null;
+        return FindClosest(vectorX);
     }
 
     public string? DeleteRight(IProgress<string>? progress)
@@ -326,10 +282,8 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         var imgX = GetImgFromDatabase(hashX);
         imgX.LastView = DateTime.Now;
-        var message = GetNext(hashX, hashY);
-        progress?.Report(message);
 
-        return vectorY.Length == AppConsts.VectorSize ? FindClosestByFlag0(vectorY) : null;
+        return vectorY.Length == AppConsts.VectorSize ? FindClosest(vectorY) : null;
     }
 
     public static string Export(string hashE)

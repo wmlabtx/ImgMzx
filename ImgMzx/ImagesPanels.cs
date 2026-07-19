@@ -36,12 +36,7 @@ public partial class Images : IDisposable
                 rotateMode: RotateMode.None,
                 flipMode: FlipMode.None,
                 lastView: DateTime.MinValue,
-                next: string.Empty,
-                score: 0,
-                lastCheck: DateTime.MinValue,
-                distance: 0,
-                family: 0,
-                flag: 0,
+                history: string.Empty,
                 images: this);
 
         if (!AppHash.IsValidHash(hash) || !ContainsImg(hash)) {
