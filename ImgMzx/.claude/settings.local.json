@@ -5,7 +5,13 @@
       "Bash(dotnet list *)",
       "Bash(dotnet add *)",
       "mcp__plugin_exa_exa__web_search_exa",
-      "mcp__plugin_exa_exa__web_fetch_exa"
+      "mcp__plugin_exa_exa__web_fetch_exa",
+      "PowerShell(dotnet build *)",
+      "Bash(env)",
+      "WebFetch(domain:licensing.sixlabors.com)",
+      "PowerShell(dotnet run *)",
+      "PowerShell(git *)",
+      "PowerShell(dotnet test *)"
     ]
   }
 }

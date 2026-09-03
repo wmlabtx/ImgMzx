@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:ImgMzx"
         xmlns:xctk="http://schemas.xceed.com/wpf/xaml/toolkit"
         mc:Ignorable="d"
-        Title="ImageBank" Height="446" Width="800" Loaded="WindowLoaded" WindowStartupLocation="Manual" Icon="/app.png" Cursor="Arrow" SizeToContent="Manual" ResizeMode="CanMinimize" KeyDown="OnKeyDown" Closed="OnClosed">
+        Title="ImageBank" Height="446" Width="800" Loaded="WindowLoaded" WindowStartupLocation="Manual" Icon="/app.png" Cursor="Arrow" SizeToContent="Manual" ResizeMode="CanMinimize" KeyDown="OnKeyDown">
     <DockPanel LastChildFill="true">
         <Menu Name="Menu" DockPanel.Dock="Top">
             <MenuItem Header="File">
@@ -45,13 +45,9 @@
             </Grid.RowDefinitions>
             <Grid Grid.Column="0" Grid.Row="0">
                 <Image Name="BoxLeft" Stretch="Uniform" />
-                <MediaElement Name="VideoLeft" Stretch="Uniform" Visibility="Collapsed"
-                              LoadedBehavior="Manual" UnloadedBehavior="Stop" />
             </Grid>
             <Grid Grid.Column="1" Grid.Row="0">
                 <Image Name="BoxRight" Stretch="Uniform" />
-                <MediaElement Name="VideoRight" Stretch="Uniform" Visibility="Collapsed"
-                              LoadedBehavior="Manual" UnloadedBehavior="Stop" />
             </Grid>
             <TextBlock Name="LabelLeft" Grid.Column="0" Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" TextAlignment="Center" FontWeight="Bold">
                 name<LineBreak/>size<LineBreak/>date

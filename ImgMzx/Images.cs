@@ -18,10 +18,13 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
     public bool ShowXOR;
     public Vit Vit => _vit;
 
+    // not used
+    /*
     public SqliteConnection GetSqliteConnection()
     {
         return _sqlConnection;
     }
+    */
 
     public void Load(IProgress<string>? progress) {
         _sqlConnection.ConnectionString = new SqliteConnectionStringBuilder {
@@ -33,30 +36,51 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         _maxImages = 0;
         lock (_lock) {
             using var command = new SqliteCommand(
-                $@"SELECT {AppConsts.AttributeMaxImages} FROM {AppConsts.TableVars};",
+                $@"SELECT {AppConsts.AttributeMaxImages}, {AppConsts.AttributeVector} FROM {AppConsts.TableVars};",
                 _sqlConnection);
             using var reader = command.ExecuteReader();
             if (reader.Read()) {
                 _maxImages = (int)reader.GetInt64(0);
+
+                // A missing or short blob leaves _center zeroed; PickNextSubject
+                // then bootstraps it from the first image it drifts towards.
+                if (!reader.IsDBNull(1)) {
+                    var centerBytes = MemoryMarshal.AsBytes(_center.AsSpan());
+                    using var stream = reader.GetStream(1);
+                    if (stream.Length == centerBytes.Length) {
+                        stream.ReadExactly(centerBytes);
+                    }
+                }
             }
         }
 
         var numVectors = _maxImages + 10000;
         _vectors = new float[numVectors * AppConsts.VectorSize];
+        _slotToHash = new string[numVectors];
+        _lastViewTicks = new long[numVectors];
+        _historyLength = new int[numVectors];
+        _rate = new int[numVectors];
+        Array.Fill(_slotToHash, string.Empty);
         var allVectorsBytes = MemoryMarshal.AsBytes(_vectors.AsSpan());
         var bytesPerVector = AppConsts.VectorSize * sizeof(float);
         var counter = 0;
         lock (_lock) {
             using var command = new SqliteCommand(
-                $@"SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeVector} FROM {AppConsts.TableImages};",
+                $@"SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeVector}, {AppConsts.AttributeLastView}, {AppConsts.AttributeHistory}, {AppConsts.AttributeRate} FROM {AppConsts.TableImages};",
                 _sqlConnection);
             using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var dt = DateTime.Now;
             while (reader.Read()) {
                 var hash = reader.GetString(0);
-                using var stream = reader.GetStream(1);
-                stream.ReadExactly(allVectorsBytes.Slice(counter * bytesPerVector, bytesPerVector));
+                using (var stream = reader.GetStream(1)) {
+                    stream.ReadExactly(allVectorsBytes.Slice(counter * bytesPerVector, bytesPerVector));
+                }
+
                 _hashToIndex[hash] = counter;
+                _slotToHash[counter] = hash;
+                _lastViewTicks[counter] = reader.GetInt64(2);
+                _historyLength[counter] = reader.GetString(3).Length;
+                _rate[counter] = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
                 counter++;
                 if (DateTime.Now.Subtract(dt).TotalMilliseconds >= AppConsts.TimeLapse) {
                     dt = DateTime.Now;
@@ -116,9 +140,9 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             DeleteImgInDatabase(hashD);
         }
 
-        var history = img.FromHistory();
+        var history = img.FromHistory;
         lock (_lock) {
-            
+
             /*
             var changed = false;
             foreach (var h in history) {
@@ -133,38 +157,111 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             }
             */
 
-            var beam = GetBeam(img.Vector);
-            var next = string.Empty;
-            var distance = 0f;
-            for (var i = 0; i < beam.Length; i++) {
-                if (beam[i].Hash.Equals(hash)) {
-                    continue;
-                }
-
-                if (history.Contains(beam[i].Hash)) {
-                    continue;
-                }
-
-                var imgY = GetImgFromDatabase(beam[i].Hash);
-                if (string.IsNullOrEmpty(imgY.Hash)) {
-                    continue;
-                }
-
-                distance = Vit.ComputeDistance(img.Vector, imgY.Vector);
-                if (img.History.Length != imgY.History.Length) {
-                    continue;
-                }
-
-                next = beam[i].Hash;
-                break;
-            }
-
+            // Only the single best candidate is ever used, so there is no reason to
+            // build and sort a full beam - a parallel min-reduction over the vectors is
+            // O(n) with no allocation instead of O(n log n) plus two n-sized arrays.
+            var (next, distance, cohortDelta) = FindNearest(img.Vector, hash, history, img.History.Length);
             if (string.IsNullOrEmpty(next)) {
                  return ("no suitable next image found", string.Empty);
             }
 
             sb.Append($"{distance:F4} ");
+            if (cohortDelta > 0) {
+                // The subject's own cohort had nothing usable this close.
+                sb.Append($"(+{cohortDelta}) ");
+            }
+
             return (next, sb.ToString());
+        }
+    }
+
+    /// <summary>
+    /// Best live image for <paramref name="query"/>, skipping <paramref name="hash"/>
+    /// itself and everything already in <paramref name="history"/>. Candidates are ranked
+    /// by distance plus <see cref="AppConsts.HistoryPenalty"/> per history entry of
+    /// difference from <paramref name="historyLength"/>: same-cohort images win whenever
+    /// they are anywhere near as close, but a cohort of one still finds a partner instead
+    /// of failing outright. Ties resolve to the lowest slot so the result does not depend
+    /// on how the work was partitioned.
+    /// </summary>
+    private (string Hash, float Distance, int CohortDelta) FindNearest(
+        ReadOnlySpan<float> query, string hash, SortedSet<string> history, int historyLength)
+    {
+        lock (_lock) {
+            if (query.Length != AppConsts.VectorSize) {
+                return (string.Empty, 0f, 0);
+            }
+
+            // Free slots carry stale vectors; an empty hash in _slotToHash marks them.
+            var localQuery = query.ToArray();
+            // Flat array + ordinal compare: SortedSet<string>.Contains would run a
+            // culture-aware comparison, and history holds a handful of entries at most.
+            var excluded = history.ToArray();
+            var capacity = _slotToHash.Length;
+            var partitions = Math.Min(Environment.ProcessorCount, Math.Max(1, capacity));
+
+            var bestSlot = -1;
+            var bestScore = float.MaxValue;
+            var bestDistance = 0f;
+            var sync = new Lock();
+
+            Parallel.For(
+                0, partitions,
+                () => (Slot: -1, Score: float.MaxValue, Distance: 0f),
+                (partition, _, local) => {
+                    var from = (int)((long)capacity * partition / partitions);
+                    var to = (int)((long)capacity * (partition + 1) / partitions);
+                    for (var slot = from; slot < to; slot++) {
+                        var candidate = _slotToHash[slot];
+                        if (candidate.Length == 0 || candidate.Equals(hash, StringComparison.Ordinal)) {
+                            continue;
+                        }
+
+                        var vector = _vectors.AsSpan(slot * AppConsts.VectorSize, AppConsts.VectorSize);
+                        var distance = Vit.ComputeDistance(localQuery, vector);
+
+                        // Cohort distance in history entries, not characters.
+                        var delta = Math.Abs(_historyLength[slot] - historyLength) / AppConsts.HashLength;
+                        var score = distance + (AppConsts.HistoryPenalty * delta);
+                        if (score >= local.Score) {
+                            continue;
+                        }
+
+                        // Deferred until the candidate would actually win, so the
+                        // history scan runs O(log n) times instead of once per slot.
+                        var seen = false;
+                        foreach (var h in excluded) {
+                            if (h.Equals(candidate, StringComparison.Ordinal)) {
+                                seen = true;
+                                break;
+                            }
+                        }
+
+                        if (!seen) {
+                            local = (slot, score, distance);
+                        }
+                    }
+
+                    return local;
+                },
+                local => {
+                    if (local.Slot < 0) {
+                        return;
+                    }
+
+                    lock (sync) {
+                        if (local.Score < bestScore ||
+                            (local.Score == bestScore && local.Slot < bestSlot)) {
+                            bestScore = local.Score;
+                            bestDistance = local.Distance;
+                            bestSlot = local.Slot;
+                        }
+                    }
+                });
+
+            return bestSlot < 0
+                ? (string.Empty, 0f, 0)
+                : (_slotToHash[bestSlot], bestDistance, Math.Abs(_historyLength[bestSlot] - historyLength) / AppConsts.HashLength);
         }
     }
 
@@ -172,7 +269,7 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
     {
         do {
             if (string.IsNullOrEmpty(hashX)) {
-                hashX = GetHashLastView();
+                hashX = PickNextSubject();
                 if (string.IsNullOrEmpty(hashX)) {
                     var totalcount = GetCount();
                     progress?.Report($"totalcount = {totalcount}");
@@ -242,13 +339,13 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         progress?.Report($"Calculating{AppConsts.CharEllipsis}");
 
         imgX.LastView = DateTime.Now;
-        var hsX = imgX.FromHistory();
+        var hsX = imgX.FromHistory;
         if (hsX.Add(hashY)) {
             imgX.ToHistory(hsX);
         }
 
         imgY.LastView = DateTime.Now;
-        var hsY = imgY.FromHistory();
+        var hsY = imgY.FromHistory;
         if (hsY.Add(hashX)) {
             imgY.ToHistory(hsY);
         }

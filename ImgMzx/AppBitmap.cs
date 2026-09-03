@@ -1,6 +1,4 @@
-﻿using FFMpegCore;
-using FFMpegCore.Pipes;
-using System.IO;
+﻿using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -22,19 +20,9 @@ public static class AppBitmap
         @"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+\-]\d{2}:\d{2})\b",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    public static bool IsVideo(ReadOnlySpan<byte> data) =>
-        data.Length >= 8 &&
-        data[4] == 0x66 && data[5] == 0x74 && data[6] == 0x79 && data[7] == 0x70;
-
-    public static bool IsVideo(byte[] data) => IsVideo(data.AsSpan());
-
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static string GetExtension(ReadOnlySpan<byte> data)
     {
-        if (IsVideo(data)) {
-            return "mp4";
-        }
-
         try
         {
             var signature = GetFileSignature(data);
@@ -197,34 +185,13 @@ public static class AppBitmap
         }));
     }
 
-    public static Image<Rgb24>? GetVideoFirstFrame(byte[] data)
-    {
-        var key = Guid.NewGuid().ToString("N");
-        var url = AppVideoServer.RegisterTemp(key, data);
-        try {
-            using var outputMs = new MemoryStream();
-            FFMpegArguments
-                .FromUrlInput(new Uri(url))
-                .OutputToPipe(new StreamPipeSink(outputMs), o => o
-                    .WithVideoCodec("png")
-                    .WithFrameOutputCount(1)
-                    .ForceFormat("image2pipe"))
-                .ProcessSynchronously();
-            outputMs.Position = 0;
-            return SixLabors.ImageSharp.Image.Load<Rgb24>(outputMs);
-        }
-        catch {
-            return null;
-        }
-        finally {
-            AppVideoServer.UnregisterTemp(key);
-        }
-    }
-
+    // not used
+    /*
     public static void ClearCache()
     {
         _formatCache.Clear();
     }
+    */
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static string GetFileSignature(ReadOnlySpan<byte> data)

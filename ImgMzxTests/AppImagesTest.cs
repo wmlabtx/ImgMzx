@@ -76,79 +76,81 @@ WHERE LENGTH(vector) = 0;
         Debug.WriteLine($"Done. Updated {updated} vectors in {sw.Elapsed.TotalSeconds:F1} s.");
     }
 
-    private static string ComputeNextAndDistance(Images images, string hash)
-    {
-        /*
-        var img = images.GetImgFromDatabase(hash);
-        if (string.IsNullOrEmpty(img.Hash) || img.Vector.Length != AppConsts.VectorSize) {
-            return string.Empty;
-        }
-
-        var oldNext = img.Next;
-        if (string.IsNullOrEmpty(oldNext)) {
-            oldNext = "XXXX";
-        }
-
-        var beam = images.GetBeam(img.Vector);
-        var next = oldNext;
-        var distance = 1f;
-        for (var i = 0; i < beam.Length; i++) {
-            if (beam[i].Hash.Equals(hash)) continue;
-            next = beam[i].Hash;
-            distance = beam[i].Distance;
-            break;
-        }
-
-        if (string.IsNullOrEmpty(next)) {
-            return string.Empty;
-        }
-
-        var sb = new StringBuilder();
-        if (!oldNext.Equals(next, StringComparison.Ordinal)) {
-            img.Next = next;
-        }
-
-        if (Math.Abs(img.Distance - distance) >= 0.0001f) {
-            sb.Append($"{img.Distance:F4} {AppConsts.CharRightArrow} {distance:F4}");
-            img.Distance = distance;
-        }
-
-        return sb.ToString();
-        */
-
-        return string.Empty;
-    }
-
-    [TestMethod]
-    public void CalculateAllDistances()
-    {
-        using var images = new Images(
-            AppConsts.FileDatabase,
-            AppConsts.FileVit);
-        var progressMessages = new List<string>();
-        var progress = new Progress<string>(msg => progressMessages.Add(msg));
-        images.Load(progress);
-
-        var hashes = images.GetAllHashes().ToArray();
-        int total = hashes.Length;
-        int updated = 0;
-        var sw = Stopwatch.StartNew();
-
-        for (int i = 0; i < total; i++) {
-            var hash = hashes[i];
-            var message = ComputeNextAndDistance(images, hash);
-            if (!string.IsNullOrEmpty(message)) {
-                updated++;
-            }
-
-            if ((i + 1) % 100 == 0 || i == total - 1) {
-                var eta = TimeSpan.FromSeconds(sw.Elapsed.TotalSeconds / (i + 1) * (total - i - 1));
-                var finish = DateTime.Now + eta;
-                Debug.WriteLine($"{i + 1}/{total}, updated: {updated}, eta {eta:hh\\:mm}, done at {finish:h:mm tt}");
-            }
-        }
-
-        sw.Stop();
-        Debug.WriteLine($"Done. Updated {updated} distances in {sw.Elapsed.TotalSeconds:F1} s.");
-    }
+    // not used - ComputeNextAndDistance has a commented-out body and always
+    // returns string.Empty, so CalculateAllDistances never updates anything
+    // private static string ComputeNextAndDistance(Images images, string hash)
+    // {
+    // /*
+    // var img = images.GetImgFromDatabase(hash);
+    // if (string.IsNullOrEmpty(img.Hash) || img.Vector.Length != AppConsts.VectorSize) {
+    // return string.Empty;
+    // }
+    //
+    // var oldNext = img.Next;
+    // if (string.IsNullOrEmpty(oldNext)) {
+    // oldNext = "XXXX";
+    // }
+    //
+    // var beam = images.GetBeam(img.Vector);
+    // var next = oldNext;
+    // var distance = 1f;
+    // for (var i = 0; i < beam.Length; i++) {
+    // if (beam[i].Hash.Equals(hash)) continue;
+    // next = beam[i].Hash;
+    // distance = beam[i].Distance;
+    // break;
+    // }
+    //
+    // if (string.IsNullOrEmpty(next)) {
+    // return string.Empty;
+    // }
+    //
+    // var sb = new StringBuilder();
+    // if (!oldNext.Equals(next, StringComparison.Ordinal)) {
+    // img.Next = next;
+    // }
+    //
+    // if (Math.Abs(img.Distance - distance) >= 0.0001f) {
+    // sb.Append($"{img.Distance:F4} {AppConsts.CharRightArrow} {distance:F4}");
+    // img.Distance = distance;
+    // }
+    //
+    // return sb.ToString();
+    // */
+    //
+    // return string.Empty;
+    // }
+    //
+    // [TestMethod]
+    // public void CalculateAllDistances()
+    // {
+    // using var images = new Images(
+    // AppConsts.FileDatabase,
+    // AppConsts.FileVit);
+    // var progressMessages = new List<string>();
+    // var progress = new Progress<string>(msg => progressMessages.Add(msg));
+    // images.Load(progress);
+    //
+    // var hashes = images.GetAllHashes().ToArray();
+    // int total = hashes.Length;
+    // int updated = 0;
+    // var sw = Stopwatch.StartNew();
+    //
+    // for (int i = 0; i < total; i++) {
+    // var hash = hashes[i];
+    // var message = ComputeNextAndDistance(images, hash);
+    // if (!string.IsNullOrEmpty(message)) {
+    // updated++;
+    // }
+    //
+    // if ((i + 1) % 100 == 0 || i == total - 1) {
+    // var eta = TimeSpan.FromSeconds(sw.Elapsed.TotalSeconds / (i + 1) * (total - i - 1));
+    // var finish = DateTime.Now + eta;
+    // Debug.WriteLine($"{i + 1}/{total}, updated: {updated}, eta {eta:hh\\:mm}, done at {finish:h:mm tt}");
+    // }
+    // }
+    //
+    // sw.Stop();
+    // Debug.WriteLine($"Done. Updated {updated} distances in {sw.Elapsed.TotalSeconds:F1} s.");
+    // }
 }

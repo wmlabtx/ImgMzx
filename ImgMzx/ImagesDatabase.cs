@@ -42,6 +42,20 @@ public partial class Images : IDisposable
     public void UpdateImgInDatabase(string hash, string key, object val)
     {
         lock (_lock) {
+            // Single choke point for every column write, so the in-memory mirror
+            // used by PickNextSubject/GetNext cannot drift away from the database.
+            if (_hashToIndex.TryGetValue(hash, out var cachedSlot)) {
+                if (key == AppConsts.AttributeLastView) {
+                    _lastViewTicks[cachedSlot] = Convert.ToInt64(val);
+                }
+                else if (key == AppConsts.AttributeHistory) {
+                    _historyLength[cachedSlot] = ((string?)val)?.Length ?? 0;
+                }
+                else if (key == AppConsts.AttributeRate) {
+                    _rate[cachedSlot] = Convert.ToInt32(val);
+                }
+            }
+
             using var sqlCommand = new SqliteCommand(
                 $"UPDATE {AppConsts.TableImages} SET {key} = @value WHERE {AppConsts.AttributeHash} = @hash",
                 _sqlConnection);
@@ -54,7 +68,7 @@ public partial class Images : IDisposable
     public void AddImgToDatabase(Img img, Span<float> vector)
     {
         lock (_lock) {
-            AddVector(img.Hash, vector);
+            AddVector(img.Hash, vector, img.LastView.Ticks, img.History.Length, img.Rate);
             using var sqlCommand = _sqlConnection.CreateCommand();
             sqlCommand.CommandText = $@"
             INSERT INTO {AppConsts.TableImages} (
@@ -63,14 +77,16 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeFlipMode},
                 {AppConsts.AttributeLastView},
                 {AppConsts.AttributeHistory},
-                {AppConsts.AttributeVector}
+                {AppConsts.AttributeVector},
+                {AppConsts.AttributeRate}
             ) VALUES (
                 @{AppConsts.AttributeHash},
                 @{AppConsts.AttributeRotateMode},
                 @{AppConsts.AttributeFlipMode},
                 @{AppConsts.AttributeLastView},
                 @{AppConsts.AttributeHistory},
-                @{AppConsts.AttributeVector}
+                @{AppConsts.AttributeVector},
+                @{AppConsts.AttributeRate}
             );";
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRotateMode}", (int)img.RotateMode);
@@ -79,7 +95,10 @@ public partial class Images : IDisposable
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHistory}", img.History);
             var vectorBytes = MemoryMarshal.Cast<float, byte>(GetVector(img.Hash)).ToArray();
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", vectorBytes);
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRate}", img.Rate);
             sqlCommand.ExecuteNonQuery();
+
+            MaxImages--;
         }
     }
 
@@ -92,7 +111,8 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeRotateMode},
                 {AppConsts.AttributeFlipMode},
                 {AppConsts.AttributeLastView},
-                {AppConsts.AttributeHistory}
+                {AppConsts.AttributeHistory},
+                {AppConsts.AttributeRate}
             FROM {AppConsts.TableImages}
             WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash};";
             using var sqlCommand = new SqliteCommand(sql, _sqlConnection);
@@ -105,6 +125,7 @@ public partial class Images : IDisposable
                     flipMode: Enum.Parse<FlipMode>(reader.GetInt64(2).ToString()),
                     lastView: new DateTime(reader.GetInt64(3)),
                     history: reader.GetString(4),
+                    rate: reader.GetInt32(5),
                     images: this);
             }
 
@@ -114,6 +135,7 @@ public partial class Images : IDisposable
                 flipMode: FlipMode.None,
                 lastView: DateTime.MinValue,
                 history: string.Empty,
+                rate: 0,
                 images: this);
         }
     }
@@ -131,18 +153,6 @@ public partial class Images : IDisposable
         }
     }
 
-    public int GetMinHistory()
-    {
-        lock (_lock) {
-            using var command = new SqliteCommand(
-                $@"SELECT MIN(LENGTH({AppConsts.AttributeHistory})) FROM {AppConsts.TableImages};",
-                _sqlConnection);
-            var result = command.ExecuteScalar();
-            var historylength = Convert.ToInt32(result);
-            return historylength / AppConsts.HashLength;
-        }
-    }
-
     public int GetMinHistoryCount()
     {
         lock (_lock) {
@@ -154,36 +164,112 @@ public partial class Images : IDisposable
         }
     }
 
-    public string GetHashLastView()
+    /*
+    public string PickNextSubject()
     {
         lock (_lock) {
-            var sql = $@"
-                WITH
-                half AS (
-                    SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeHistory}
-                    FROM {AppConsts.TableImages}
-                    ORDER BY {AppConsts.AttributeLastView} ASC
-                    LIMIT (SELECT COUNT(*) / 10 FROM {AppConsts.TableImages})
-                ),
-                grouped AS (
-                    SELECT {AppConsts.AttributeHash},
-                           LENGTH({AppConsts.AttributeHistory}) AS hlen,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY LENGTH({AppConsts.AttributeHistory})
-                               ORDER BY RANDOM()
-                           ) AS rn
-                    FROM half
-                )
-                SELECT {AppConsts.AttributeHash}
-                FROM grouped
-                WHERE rn = 1
-                ORDER BY RANDOM()
-                LIMIT 1";
-
-            using var cmd = new SqliteCommand(sql, _sqlConnection);
-            var result = cmd.ExecuteScalar();
-            return result?.ToString() ?? string.Empty;
+            using var command = new SqliteCommand(
+                $@"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages}
+                   WHERE length({AppConsts.AttributeHistory}) = (
+                       SELECT length({AppConsts.AttributeHistory}) FROM {AppConsts.TableImages}
+                       GROUP BY length({AppConsts.AttributeHistory})
+                        ORDER BY 1
+                       LIMIT 1)
+                   ORDER BY RANDOM()
+                   LIMIT 1;",
+                _sqlConnection);
+            return command.ExecuteScalar() as string ?? string.Empty;
         }
+    }
+    */
+
+    /// <summary>
+    /// Picks an image with a probability proportional to how long ago it was seen:
+    /// weight(row) = (maxLastView - lastView) + 1, so the least recently viewed rows
+    /// get the largest share and a freshly viewed row still keeps a non-zero chance.
+    /// Weights are measured in seconds rather than ticks to keep the running sum far
+    /// away from long overflow (see PickNextSubjectWeight). Rated rows then have their
+    /// weight multiplied by PickNextSubjectBoost so they come up far more often, in the
+    /// ratio set by AppConsts.UnratedPerRated.
+    /// </summary>
+    public string PickNextSubject()
+    {
+        lock (_lock) {
+            if (_hashToIndex.Count == 0) {
+                return string.Empty;
+            }
+
+            var maxLastViewTicks = long.MinValue;
+            foreach (var slot in _hashToIndex.Values) {
+                if (_lastViewTicks[slot] > maxLastViewTicks) {
+                    maxLastViewTicks = _lastViewTicks[slot];
+                }
+            }
+
+            // First pass: total weight, split by rate so the boost can be sized against
+            // what the rated rows actually weigh right now. Sorting the rows is not
+            // required - walking the weights in any order yields the same distribution.
+            var ratedsum = 0L;
+            var unratedsum = 0L;
+            foreach (var slot in _hashToIndex.Values) {
+                var weight = PickNextSubjectWeight(maxLastViewTicks, _lastViewTicks[slot]);
+                if (_rate[slot] > 0) {
+                    ratedsum += weight;
+                }
+                else {
+                    unratedsum += weight;
+                }
+            }
+
+            var boost = PickNextSubjectBoost(ratedsum, unratedsum);
+            var lvsum = unratedsum + (ratedsum * boost);
+            if (lvsum <= 0) {
+                return string.Empty;
+            }
+
+            // Second pass: find the row the random point falls into.
+            var point = Random.Shared.NextInt64(lvsum);
+            foreach (var slot in _hashToIndex.Values) {
+                var weight = PickNextSubjectWeight(maxLastViewTicks, _lastViewTicks[slot]);
+                if (_rate[slot] > 0) {
+                    weight *= boost;
+                }
+
+                point -= weight;
+                if (point < 0) {
+                    return _slotToHash[slot];
+                }
+            }
+
+            return string.Empty;
+        }
+    }
+
+    private static long PickNextSubjectWeight(long maxLastViewTicks, long lastViewTicks)
+    {
+        // Seconds, not ticks: a tick-based weight is up to 10^7 times larger, and with
+        // a large library spanning years the sum would run into long overflow.
+        var seconds = (maxLastViewTicks - lastViewTicks) / TimeSpan.TicksPerSecond;
+        return seconds < 0 ? 1 : seconds + 1;
+    }
+
+    /// <summary>
+    /// Multiplier applied to a rated row's weight. Solving
+    /// boost * ratedsum = unratedsum / UnratedPerRated gives the boost below, which puts
+    /// the rated rows at 1 / (UnratedPerRated + 1) of the total weight - one rated
+    /// subject per UnratedPerRated unrated ones - no matter how many images are rated.
+    /// Never less than 1: once the rated rows already carry more than their share, they
+    /// are left alone rather than suppressed. The boosted total is at most
+    /// unratedsum * (1 + 1 / UnratedPerRated), so it cannot overflow long.
+    /// </summary>
+    private static long PickNextSubjectBoost(long ratedsum, long unratedsum)
+    {
+        if (ratedsum <= 0) {
+            return 1;
+        }
+
+        var boost = unratedsum / (AppConsts.UnratedPerRated * ratedsum);
+        return boost < 1 ? 1 : boost;
     }
 
     public DateTime GetLastView()
@@ -201,23 +287,35 @@ public partial class Images : IDisposable
     public string? FindClosest(float[] vector)
     {
         lock (_lock) {
-            var freeSlots = new HashSet<int>(_freeSlots);
-            var hashArray = _hashToIndex.Keys
-                .Where(h => !freeSlots.Contains(_hashToIndex[h]))
+            // _hashToIndex holds only live slots, so free slots need no filtering.
+            var minHistoryLength = int.MaxValue;
+            foreach (var slot in _hashToIndex.Values) {
+                if (_historyLength[slot] < minHistoryLength) {
+                    minHistoryLength = _historyLength[slot];
+                }
+            }
+
+            var slotArray = _hashToIndex.Values
+                .Where(slot => _historyLength[slot] == minHistoryLength)
                 .ToArray();
-            if (hashArray.Length == 0) {
+            if (slotArray.Length == 0) {
                 return null;
             }
 
-            var results = new (string Hash, float Distance)[hashArray.Length];
-            Parallel.For(0, hashArray.Length, i => {
-                var hash = hashArray[i];
-                var slot = _hashToIndex[hash];
-                var v = _vectors.AsSpan(slot * AppConsts.VectorSize, AppConsts.VectorSize);
-                results[i] = (hash, Vit.ComputeDistance(vector, v));
+            var distances = new float[slotArray.Length];
+            Parallel.For(0, slotArray.Length, i => {
+                var v = _vectors.AsSpan(slotArray[i] * AppConsts.VectorSize, AppConsts.VectorSize);
+                distances[i] = Vit.ComputeDistance(vector, v);
             });
 
-            return results.MinBy(r => r.Distance).Hash;
+            var best = 0;
+            for (var i = 1; i < distances.Length; i++) {
+                if (distances[i] < distances[best]) {
+                    best = i;
+                }
+            }
+
+            return _slotToHash[slotArray[best]];
         }
     }
 }

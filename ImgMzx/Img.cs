@@ -9,6 +9,7 @@ public struct Img(
     RotateMode rotateMode,
     FlipMode flipMode,
     string history,
+    int rate,
     Images images)
 {
     private readonly Images _images = images;
@@ -58,17 +59,18 @@ public struct Img(
         }
     }
 
-    public SortedSet<string> FromHistory()
-    {
-        var set = new SortedSet<string>();
-        if (!string.IsNullOrEmpty(_history)) {
-            for (var offset = 0; offset < _history.Length; offset += AppConsts.HashLength) {
-                var hash = _history.Substring(offset, AppConsts.HashLength);
-                set.Add(hash);
+    public SortedSet<string> FromHistory {
+        get {
+            var set = new SortedSet<string>();
+            if (!string.IsNullOrEmpty(_history)) {
+                for (var offset = 0; offset < _history.Length; offset += AppConsts.HashLength) {
+                    var hash = _history.Substring(offset, AppConsts.HashLength);
+                    set.Add(hash);
+                }
             }
-        }
 
-        return set;
+            return set;
+        }
     }
 
     public void ToHistory(SortedSet<string> history)
@@ -86,6 +88,15 @@ public struct Img(
         set {
             _images.UpdateVector(_hash, value);
             _images.UpdateVectorInDatabase(_hash, value);
+        }
+    }
+
+    private int _rate = rate;
+    public int Rate {
+        get { return _rate; }
+        set {
+            _rate = value;
+            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeRate, value);
         }
     }
 }

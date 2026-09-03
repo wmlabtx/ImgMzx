@@ -61,6 +61,8 @@ namespace ImgMzx
             }
         }
 
+        // not used
+        /*
         public static string GetHashDistance(string hash, float distance)
         {
             var rounded = (int)Math.Round(distance * 10000);
@@ -69,6 +71,7 @@ namespace ImgMzx
             return radius;
         }
 
+        // superseded by Img.FromHistory()
         public static HashSet<string> HistoryFromString(string history)
         {
             var set = new HashSet<string>();
@@ -86,6 +89,7 @@ namespace ImgMzx
             return set;
         }
 
+        // superseded by Img.ToHistory()
         public static string HistoryToString(HashSet<string> history)
         {
             if (history.Count == 0) {
@@ -99,5 +103,6 @@ namespace ImgMzx
 
             return sb.ToString();
         }
+        */
     }
 }

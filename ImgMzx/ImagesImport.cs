@@ -41,9 +41,7 @@ public partial class Images : IDisposable
                     found++;
                 }
                 else {
-                    using var image = AppBitmap.IsVideo(orgimagedata)
-                        ? AppBitmap.GetVideoFirstFrame(orgimagedata)
-                        : AppBitmap.GetImage(orgimagedata);
+                    using var image = AppBitmap.GetImage(orgimagedata);
 
                     if (image == null) {
                         AppFile.MoveToRecycleBin(orgfilename);
@@ -62,13 +60,14 @@ public partial class Images : IDisposable
                                 flipMode: FlipMode.None,
                                 lastView: lastview,
                                 history: string.Empty,
+                                rate: 0,
                                 images: this);
 
                             AddImgToDatabase(imgnew, vector.AsSpan());
                             AppFile.WriteMex(hash, orgimagedata);
                             AppFile.MoveToRecycleBin(orgfilename);
                             added++;
-                            var message = GetNext(hash);
+                            GetNext(hash);   // return value not used, called for its side effects
                             lastview = lastview.AddMinutes(-1);
                         }
                     }
@@ -100,7 +99,6 @@ public partial class Images : IDisposable
     }
     public void Import(IProgress<string>? progress)
     {
-        MaxImages -= 100;
         var lastview = GetLastView();
         var added = 0;
         var found = 0;

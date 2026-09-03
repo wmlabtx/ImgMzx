@@ -11,7 +11,6 @@ public struct Panel
     public Image<Rgb24>? Image;
     public string Extension;
     public DateTime? Taken;
-    public string? VideoPath;
     public int DisplayWidth;
     public int DisplayHeight;
 }

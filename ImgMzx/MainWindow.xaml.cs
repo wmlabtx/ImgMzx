@@ -45,12 +45,20 @@ namespace ImgMzx
             if (e.LeftButton == MouseButtonState.Pressed) {
                 ButtonLeftNextMouseClick();
             }
+
+            if (e.MiddleButton == MouseButtonState.Pressed) {
+                ButtonLeftRateMouseClick();
+            }
         }
 
         private void ButtonRightNextMouseClick(object sender, MouseEventArgs e)
         {
             if (e.LeftButton == MouseButtonState.Pressed) {
                 ButtonRightNextMouseClick();
+            }
+
+            if (e.MiddleButton == MouseButtonState.Pressed) {
+                ButtonRightRateMouseClick();
             }
         }
 
@@ -94,11 +102,6 @@ namespace ImgMzx
         private void ToggleXorClick(object sender, RoutedEventArgs e)
         {
             ToggleXorClick();
-        }
-
-        private void OnClosed(object sender, EventArgs e)
-        {
-            OnClosed();
         }
     }
 }

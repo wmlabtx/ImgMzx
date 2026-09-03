@@ -124,6 +124,8 @@ public static class AppCrypto
         return Decrypt(buffer.AsSpan(0, length), password);
     }
 
+    // not used
+    /*
     public static void EncryptBatch(IReadOnlyList<byte[]> inputs, IReadOnlyList<string> passwords, IList<byte[]> outputs)
     {
         if (inputs.Count != passwords.Count || inputs.Count != outputs.Count)
@@ -145,6 +147,7 @@ public static class AppCrypto
             outputs[i] = Decrypt(inputs[i], passwords[i]);
         });
     }
+    */
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static byte[] DeriveKeyBytes(ReadOnlySpan<char> password)
@@ -202,6 +205,8 @@ public static class AppCrypto
         }
     }
 
+    // not used
+    /*
     public static byte[] EncryptLegacy(byte[] array, string password)
     {
         using var aes = CreateAesLegacy(password);
@@ -233,8 +238,11 @@ public static class AppCrypto
             }
         }
     }
+    */
 }
 
+// not used
+/*
 /// <summary>
 /// Only for test file operations
 /// </summary>
@@ -277,3 +285,4 @@ public static class AppCryptoExtensions
         }
     }
 }
+*/

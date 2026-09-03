@@ -1,7 +1,8 @@
 ﻿using System.Text;
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Controls;
+// not used
+// using System.Windows.Controls;
 using SixLabors.ImageSharp.Processing;
 using System.Runtime.Versioning;
 
@@ -24,10 +25,6 @@ public sealed partial class MainWindow
     {
         BoxLeft.MouseDown += PictureLeftBoxMouseClick;
         BoxRight.MouseDown += PictureRightBoxMouseClick;
-        VideoLeft.MediaEnded += (s, e) => { VideoLeft.Position = TimeSpan.Zero; VideoLeft.Play(); };
-        VideoRight.MediaEnded += (s, e) => { VideoRight.Position = TimeSpan.Zero; VideoRight.Play(); };
-        AppVideoServer.Start();
-
         LabelLeft.MouseDown += ButtonLeftNextMouseClick;
         LabelRight.MouseDown += ButtonRightNextMouseClick;
 
@@ -114,12 +111,28 @@ public sealed partial class MainWindow
         }
     }
 
+    private async void ButtonLeftRateMouseClick()
+    {
+        DisableElements();
+        _images.Rate(0);
+        DrawCanvas();
+        EnableElements();
+    }
+
     private async void ButtonRightNextMouseClick()
     {
         DisableElements();
         await Task.Run(() => { _images.Confirm(_progress); }).ConfigureAwait(true);
         var hashX = _images.GetPanel(0)!.Value.Hash;
         await Task.Run(() => { _images.Find(hashX, _progress); }).ConfigureAwait(true);
+        DrawCanvas();
+        EnableElements();
+    }
+
+    private async void ButtonRightRateMouseClick()
+    {
+        DisableElements();
+        _images.Rate(1);
         DrawCanvas();
         EnableElements();
     }
@@ -143,20 +156,12 @@ public sealed partial class MainWindow
         Status.IsEnabled = enabled;
         BoxLeft.IsEnabled = enabled;
         BoxRight.IsEnabled = enabled;
-        VideoLeft.IsEnabled = enabled;
-        VideoRight.IsEnabled = enabled;
         LabelLeft.IsEnabled = enabled;
         LabelRight.IsEnabled = enabled;
     }
 
     private void DrawCanvas()
     {
-        var videoBoxes = new[] { VideoLeft, VideoRight };
-        foreach (var vb in videoBoxes) {
-            vb.Stop();
-            vb.Source = null;
-        }
-
         var panels = new Panel?[2];
         panels[0] = _images.GetPanel(0);
         panels[1] = _images.GetPanel(1);
@@ -170,17 +175,7 @@ public sealed partial class MainWindow
         for (var index = 0; index < 2; index++) {
             var ix = panels[index]!.Value;
 
-            if (ix.VideoPath != null) {
-                pBoxes[index].Visibility = Visibility.Collapsed;
-                videoBoxes[index].Visibility = Visibility.Visible;
-                videoBoxes[index].Source = new Uri(ix.VideoPath);
-                videoBoxes[index].Play();
-            }
-            else {
-                pBoxes[index].Visibility = Visibility.Visible;
-                videoBoxes[index].Visibility = Visibility.Collapsed;
-                pBoxes[index].Source = AppBitmap.GetImageSource(ix.Image!);
-            }
+            pBoxes[index].Source = AppBitmap.GetImageSource(ix.Image!);
 
             var sb = new StringBuilder();
             sb.Append($"{ix.Hash[..4]}.{ix.Extension}");
@@ -206,10 +201,15 @@ public sealed partial class MainWindow
 
             pLabels[index].Text = sb.ToString();
 
-            var length = ix.Img.History.Length / AppConsts.HashLength;
-            var t = (byte)(255 * (1.0 - Math.Min(length, 16) / 16.0));
-            pLabels[index].Background = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(t, 255, t));
+            if (ix.Image != null && ix.Img.Rate > 0) {
+                pLabels[index].Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Yellow);
+            }
+            else {
+                var length = ix.Img.History.Length / AppConsts.HashLength;
+                var t = (byte)(255 * (1.0 - Math.Min(length, 16) / 16.0));
+                pLabels[index].Background = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(t, 255, t));
+            }
         }
 
         RedrawCanvas();
@@ -259,7 +259,7 @@ public sealed partial class MainWindow
         DisableElements();
         string? closestHash = null;
         await Task.Run(() => { closestHash = _images.DeleteLeft(_progress); }).ConfigureAwait(true);
-        await Task.Run(() => { _images.Find(closestHash, _progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Find(null, _progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }
@@ -269,14 +269,13 @@ public sealed partial class MainWindow
         DisableElements();
         string? closestHash = null;
         await Task.Run(() => { closestHash = _images.DeleteRight(_progress); }).ConfigureAwait(true);
-        await Task.Run(() => { _images.Find(closestHash, _progress); }).ConfigureAwait(true);
+        await Task.Run(() => { _images.Find(null, _progress); }).ConfigureAwait(true);
         DrawCanvas();
         EnableElements();
     }
 
     private async void RotateClick(RotateMode rotatemode)
     {
-        if (_images.GetPanel(0)?.VideoPath != null) return;
         DisableElements();
         var hash = _images.GetPanel(0)!.Value.Hash;
         var img = _images.GetPanel(0)!.Value.Img;
@@ -288,7 +287,6 @@ public sealed partial class MainWindow
 
     private async void FlipClick(FlipMode flipmode)
     {
-        if (_images.GetPanel(0)?.VideoPath != null) return;
         DisableElements();
         var hash = _images.GetPanel(0)!.Value.Hash;
         var img = _images.GetPanel(0)!.Value.Img;
@@ -319,6 +317,8 @@ public sealed partial class MainWindow
         EnableElements();
     }
 
+    // not used - body was already commented out, so both handlers only redraw
+    /*
     private void FamilyAddClick()
     {
         DisableElements();
@@ -334,15 +334,7 @@ public sealed partial class MainWindow
         DrawCanvas();
         EnableElements();
     }
-
-    private void OnClosed()
-    {
-        VideoLeft.Stop();
-        VideoRight.Stop();
-        VideoLeft.Source = null;
-        VideoRight.Source = null;
-        AppVideoServer.Stop();
-    }
+    */
 
     private void OnKeyDown(Key key)
     {
@@ -350,12 +342,15 @@ public sealed partial class MainWindow
             case Key.V:
                 ToggleXorClick();
                 break;
+            // not used
+            /*
             case Key.A:
                 FamilyAddClick();
                 break;
             case Key.D:
                 FamilyRemoveClick();
                 break;
+            */
         }
     }
 }
