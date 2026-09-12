@@ -35,6 +35,7 @@ public partial class Images : IDisposable
                 lastView: DateTime.MinValue,
                 history: string.Empty,
                 rate: 0,
+                distance: 0.0f,
                 images: this);
 
         if (!AppHash.IsValidHash(hash) || !ContainsImg(hash)) {

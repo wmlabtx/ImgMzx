@@ -1,8 +1,9 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using SixLabors.ImageSharp.Processing;
 using System.Data;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Policy;
 using System.Text;
 
 namespace ImgMzx;
@@ -57,16 +58,14 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         var numVectors = _maxImages + 10000;
         _vectors = new float[numVectors * AppConsts.VectorSize];
         _slotToHash = new string[numVectors];
-        _lastViewTicks = new long[numVectors];
         _historyLength = new int[numVectors];
-        _rate = new int[numVectors];
         Array.Fill(_slotToHash, string.Empty);
         var allVectorsBytes = MemoryMarshal.AsBytes(_vectors.AsSpan());
         var bytesPerVector = AppConsts.VectorSize * sizeof(float);
         var counter = 0;
         lock (_lock) {
             using var command = new SqliteCommand(
-                $@"SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeVector}, {AppConsts.AttributeLastView}, {AppConsts.AttributeHistory}, {AppConsts.AttributeRate} FROM {AppConsts.TableImages};",
+                $@"SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeVector}, {AppConsts.AttributeHistory} FROM {AppConsts.TableImages};",
                 _sqlConnection);
             using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var dt = DateTime.Now;
@@ -78,9 +77,7 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
                 _hashToIndex[hash] = counter;
                 _slotToHash[counter] = hash;
-                _lastViewTicks[counter] = reader.GetInt64(2);
-                _historyLength[counter] = reader.GetString(3).Length;
-                _rate[counter] = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
+                _historyLength[counter] = reader.GetString(2).Length;
                 counter++;
                 if (DateTime.Now.Subtract(dt).TotalMilliseconds >= AppConsts.TimeLapse) {
                     dt = DateTime.Now;
@@ -164,6 +161,8 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             if (string.IsNullOrEmpty(next)) {
                  return ("no suitable next image found", string.Empty);
             }
+
+            img.Distance = distance;
 
             sb.Append($"{distance:F4} ");
             if (cohortDelta > 0) {
@@ -344,11 +343,15 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             imgX.ToHistory(hsX);
         }
 
+        (_, _) = GetNext(hashX);
+
         imgY.LastView = DateTime.Now;
         var hsY = imgY.FromHistory;
         if (hsY.Add(hashX)) {
             imgY.ToHistory(hsY);
         }
+
+        (_, _) = GetNext(hashY);
     }
 
     public string? DeleteLeft(IProgress<string>? progress)
@@ -363,6 +366,7 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         var imgY = GetImgFromDatabase(hashY);
         imgY.LastView = DateTime.Now;
+        GetNext(hashY);   // return value not used, called for its side effects
 
         return FindClosest(vectorX);
     }
@@ -379,6 +383,7 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         var imgX = GetImgFromDatabase(hashX);
         imgX.LastView = DateTime.Now;
+        GetNext(hashX);   // return value not used, called for its side effects
 
         return vectorY.Length == AppConsts.VectorSize ? FindClosest(vectorY) : null;
     }

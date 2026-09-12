@@ -61,6 +61,7 @@ public partial class Images : IDisposable
                                 lastView: lastview,
                                 history: string.Empty,
                                 rate: 0,
+                                distance: 0.0f,
                                 images: this);
 
                             AddImgToDatabase(imgnew, vector.AsSpan());

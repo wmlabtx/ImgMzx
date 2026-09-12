@@ -1,4 +1,4 @@
-namespace ImgMzx;
+﻿namespace ImgMzx;
 
 public static class AppConsts
 {
@@ -14,25 +14,19 @@ public static class AppConsts
     public const string PathRawProtected = @"M:\raw";
     public const string PathExport = @"M:\export";
 
-    public const int MaxImportFiles = 100;
+    public const int MaxImportFiles = 1000;
     public const int HashLength = 16;
     public const int VectorSize = 1024;
-
-    // Distance added per history-entry of difference when picking the next image, so a
-    // candidate from another cohort is preferred only when nothing closer exists in the
-    // subject's own. Measured on the live database: distance to the nearest image has a
-    // median of 0.154, and the nearest same-cohort image is never worse than the nearest
-    // overall by more than 0.122 - so 0.2 reproduces the old hard cohort filter in every
-    // observed case, while still yielding a partner for a cohort of one.
     public const float HistoryPenalty = 0.2f;
 
-    // How many rate = 0 subjects PickNextSubject should show per one rate > 0 subject.
-    // The boost is derived from this at pick time rather than being a fixed multiplier,
-    // because a fixed one would depend on how many images happen to be rated: with a
-    // handful rated it would be nearly invisible, and once hundreds are rated it would
-    // crowd out everything else.
-    public const long UnratedPerRated = 10;
-
+    // How fast the history penalty in PickNextSubject grows: a subject with n history
+    // entries is ordered by distance ^ (1 / (1 + HistoryPenaltyRate * n)). Distances are
+    // in (0, 1), so the root pushes the value towards 1 and the row falls back in the
+    // queue. At 0.25 the penalty is gentle - with distance 0.36: n=1 -> 0.44, n=2 -> 0.51,
+    // n=7 -> 0.69. Raise it to 1.0 for the plain 1/(n+1) curve (n=1 -> 0.60, n=7 -> 0.88),
+    // set it to 0 to order by raw distance.
+    public const double HistoryPenaltyRate = 0.25;
+    public const double PickPower = 8.0;
     public const char CharEllipsis = '\u2026';
 
     // not used
@@ -49,6 +43,7 @@ public static class AppConsts
     public const string AttributeLastView = "lastview";
     public const string AttributeHistory = "history";
     public const string AttributeRate = "rate";
+    public const string AttributeDistance = "distance";
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";

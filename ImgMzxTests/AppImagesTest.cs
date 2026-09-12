@@ -76,81 +76,78 @@ WHERE LENGTH(vector) = 0;
         Debug.WriteLine($"Done. Updated {updated} vectors in {sw.Elapsed.TotalSeconds:F1} s.");
     }
 
-    // not used - ComputeNextAndDistance has a commented-out body and always
-    // returns string.Empty, so CalculateAllDistances never updates anything
-    // private static string ComputeNextAndDistance(Images images, string hash)
-    // {
-    // /*
-    // var img = images.GetImgFromDatabase(hash);
-    // if (string.IsNullOrEmpty(img.Hash) || img.Vector.Length != AppConsts.VectorSize) {
-    // return string.Empty;
-    // }
-    //
-    // var oldNext = img.Next;
-    // if (string.IsNullOrEmpty(oldNext)) {
-    // oldNext = "XXXX";
-    // }
-    //
-    // var beam = images.GetBeam(img.Vector);
-    // var next = oldNext;
-    // var distance = 1f;
-    // for (var i = 0; i < beam.Length; i++) {
-    // if (beam[i].Hash.Equals(hash)) continue;
-    // next = beam[i].Hash;
-    // distance = beam[i].Distance;
-    // break;
-    // }
-    //
-    // if (string.IsNullOrEmpty(next)) {
-    // return string.Empty;
-    // }
-    //
-    // var sb = new StringBuilder();
-    // if (!oldNext.Equals(next, StringComparison.Ordinal)) {
-    // img.Next = next;
-    // }
-    //
-    // if (Math.Abs(img.Distance - distance) >= 0.0001f) {
-    // sb.Append($"{img.Distance:F4} {AppConsts.CharRightArrow} {distance:F4}");
-    // img.Distance = distance;
-    // }
-    //
-    // return sb.ToString();
-    // */
-    //
-    // return string.Empty;
-    // }
-    //
-    // [TestMethod]
-    // public void CalculateAllDistances()
-    // {
-    // using var images = new Images(
-    // AppConsts.FileDatabase,
-    // AppConsts.FileVit);
-    // var progressMessages = new List<string>();
-    // var progress = new Progress<string>(msg => progressMessages.Add(msg));
-    // images.Load(progress);
-    //
-    // var hashes = images.GetAllHashes().ToArray();
-    // int total = hashes.Length;
-    // int updated = 0;
-    // var sw = Stopwatch.StartNew();
-    //
-    // for (int i = 0; i < total; i++) {
-    // var hash = hashes[i];
-    // var message = ComputeNextAndDistance(images, hash);
-    // if (!string.IsNullOrEmpty(message)) {
-    // updated++;
-    // }
-    //
-    // if ((i + 1) % 100 == 0 || i == total - 1) {
-    // var eta = TimeSpan.FromSeconds(sw.Elapsed.TotalSeconds / (i + 1) * (total - i - 1));
-    // var finish = DateTime.Now + eta;
-    // Debug.WriteLine($"{i + 1}/{total}, updated: {updated}, eta {eta:hh\\:mm}, done at {finish:h:mm tt}");
-    // }
-    // }
-    //
-    // sw.Stop();
-    // Debug.WriteLine($"Done. Updated {updated} distances in {sw.Elapsed.TotalSeconds:F1} s.");
-    // }
+    /// <summary>
+    /// Walks every row and calls GetNext(hash), which recomputes the nearest neighbour
+    /// and writes the fresh value into the distance column. Nothing is asserted about
+    /// the result: the point is the side effect on the database. One pass over a full
+    /// library takes hours, so progress and ETA are reported as it goes.
+    /// </summary>
+    [TestMethod]
+    public void CalculateAllDistances()
+    {
+        using var images = new Images(
+            AppConsts.FileDatabase,
+            AppConsts.FileVit);
+        var progressMessages = new List<string>();
+        var progress = new Progress<string>(msg => progressMessages.Add(msg));
+        images.Load(progress);
+
+        var hashes = images.GetAllHashes().ToArray();
+        var total = hashes.Length;
+        var found = 0;
+        var failed = 0;
+        var sw = Stopwatch.StartNew();
+        var lastreport = TimeSpan.Zero;
+
+        for (var i = 0; i < total; i++) {
+            var result = images.GetNext(hashes[i]);
+            if (string.IsNullOrEmpty(result.message)) {
+                // GetNext reports a failure by returning the reason as the next hash and
+                // leaving the message empty; the distance column is untouched in that case.
+                failed++;
+            }
+            else {
+                found++;
+            }
+
+            // Report on a time interval rather than a row count: a row can take anywhere
+            // from milliseconds to seconds, so every-N-rows either floods or goes silent.
+            var elapsed = sw.Elapsed;
+            if (elapsed - lastreport >= TimeSpan.FromSeconds(10) || i == total - 1) {
+                lastreport = elapsed;
+                var done = i + 1;
+                var eta = TimeSpan.FromSeconds(elapsed.TotalSeconds / done * (total - done));
+                var line =
+                    $"{done}/{total} ({done * 100.0 / total:F1}%) " +
+                    $"found: {found}, failed: {failed}, " +
+                    $"elapsed {FormatSpan(elapsed)}, eta {FormatSpan(eta)}, " +
+                    $"done at {DateTime.Now + eta:g}";
+                Console.WriteLine(line);
+                Debug.WriteLine(line);
+            }
+        }
+
+        sw.Stop();
+        var summary =
+            $"Done. {total} rows in {FormatSpan(sw.Elapsed)} " +
+            $"({sw.Elapsed.TotalSeconds / Math.Max(1, total):F3} s/row), " +
+            $"found: {found}, failed: {failed}.";
+        Console.WriteLine(summary);
+        Debug.WriteLine(summary);
+
+        Assert.IsGreaterThan(0, total, "No rows in the database");
+    }
+
+    /// <summary>
+    /// Hours:minutes:seconds, with hours running past 24 instead of rolling into a days
+    /// field - a full pass can take more than a day and "1.03:20:15" is harder to read.
+    /// </summary>
+    private static string FormatSpan(TimeSpan span)
+    {
+        if (span < TimeSpan.Zero) {
+            span = TimeSpan.Zero;
+        }
+
+        return $"{(int)span.TotalHours:D2}h {span.Minutes:D2}m {span.Seconds:D2}s";
+    }
 }
