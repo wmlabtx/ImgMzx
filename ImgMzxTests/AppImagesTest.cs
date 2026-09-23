@@ -1,8 +1,8 @@
 ﻿using ImgMzx;
-using Microsoft.Data.Sqlite;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
-using System.Text;
+using System.Text.Json;
 
 namespace ImgMzxTests;
 
@@ -77,6 +77,77 @@ WHERE LENGTH(vector) = 0;
     }
 
     /// <summary>
+    /// Samples a subset of the library, computes the 6 Lab color moments (median + sigma
+    /// per channel) for each, and dumps them to a JSON file for offline analysis (picking
+    /// bin counts / quantile cut points).
+    /// </summary>
+    [TestMethod]
+    public void CalculateColorMoments()
+    {
+        using var images = new Images(
+            AppConsts.FileDatabase,
+            AppConsts.FileVit);
+        var progressMessages = new List<string>();
+        var progress = new Progress<string>(msg => progressMessages.Add(msg));
+        images.Load(progress);
+
+        const int sampleSize = 20000;
+        var rng = new Random(42);
+        var hashes = images.GetAllHashes()
+            .OrderBy(_ => rng.Next())
+            .Take(sampleSize)
+            .ToArray();
+
+        var records = new List<object>(hashes.Length);
+        var failed = 0;
+        var sw = Stopwatch.StartNew();
+        var lastreport = TimeSpan.Zero;
+
+        for (var i = 0; i < hashes.Length; i++) {
+            var hash = hashes[i];
+            var imgData = AppFile.ReadMex(hash);
+            var image = imgData != null ? AppBitmap.GetImage(imgData) : null;
+            if (image != null) {
+                using (image) {
+                    var m = Vit.CalculateColorMoments(image);
+                    records.Add(new {
+                        hash,
+                        medianL = m[0], medianA = m[1], medianB = m[2],
+                        sigmaL = m[3], sigmaA = m[4], sigmaB = m[5]
+                    });
+                }
+            }
+            else {
+                failed++;
+            }
+
+            var elapsed = sw.Elapsed;
+            if (elapsed - lastreport >= TimeSpan.FromSeconds(10) || i == hashes.Length - 1) {
+                lastreport = elapsed;
+                var done = i + 1;
+                var eta = TimeSpan.FromSeconds(elapsed.TotalSeconds / done * (hashes.Length - done));
+                var line =
+                    $"{done}/{hashes.Length} ({done * 100.0 / hashes.Length:F1}%) " +
+                    $"failed: {failed}, elapsed {FormatSpan(elapsed)}, eta {FormatSpan(eta)}";
+                Console.WriteLine(line);
+                Debug.WriteLine(line);
+            }
+        }
+        sw.Stop();
+
+        var outputPath = Path.Combine(Path.GetDirectoryName(AppConsts.FileDatabase)!, "color_moments.json");
+        File.WriteAllText(outputPath, JsonSerializer.Serialize(records));
+
+        var summary =
+            $"Done. {records.Count} images in {FormatSpan(sw.Elapsed)}, " +
+            $"failed: {failed}. Saved to {outputPath}.";
+        Console.WriteLine(summary);
+        Debug.WriteLine(summary);
+
+        Assert.IsGreaterThan(0, records.Count, "No color moments computed");
+    }
+
+    /// <summary>
     /// Walks every row and calls GetNext(hash), which recomputes the nearest neighbour
     /// and writes the fresh value into the distance column. Nothing is asserted about
     /// the result: the point is the side effect on the database. One pass over a full
@@ -133,7 +204,7 @@ WHERE LENGTH(vector) = 0;
             $"({sw.Elapsed.TotalSeconds / Math.Max(1, total):F3} s/row), " +
             $"found: {found}, failed: {failed}.";
         Console.WriteLine(summary);
-        Debug.WriteLine(summary);
+         Debug.WriteLine(summary);
 
         Assert.IsGreaterThan(0, total, "No rows in the database");
     }

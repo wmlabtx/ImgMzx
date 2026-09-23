@@ -5,10 +5,6 @@ public partial class Images : IDisposable
     private float[] _vectors = [];
     private readonly Dictionary<string, int> _hashToIndex = [];
     private Stack<int> _freeSlots = new();
-
-    // Per-slot metadata mirrored from the database so that image selection never
-    // has to issue a query. Kept in sync by AddVector/RemoveVector and by the
-    // single choke point UpdateImgInDatabase().
     private string[] _slotToHash = [];
     private int[] _historyLength = [];
 

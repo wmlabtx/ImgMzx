@@ -18,15 +18,22 @@ public static class AppConsts
     public const int HashLength = 16;
     public const int VectorSize = 1024;
     public const float HistoryPenalty = 0.2f;
+    public const float MaxClusterDistance = 0.75f;
 
-    // How fast the history penalty in PickNextSubject grows: a subject with n history
-    // entries is ordered by distance ^ (1 / (1 + HistoryPenaltyRate * n)). Distances are
-    // in (0, 1), so the root pushes the value towards 1 and the row falls back in the
-    // queue. At 0.25 the penalty is gentle - with distance 0.36: n=1 -> 0.44, n=2 -> 0.51,
-    // n=7 -> 0.69. Raise it to 1.0 for the plain 1/(n+1) curve (n=1 -> 0.60, n=7 -> 0.88),
-    // set it to 0 to order by raw distance.
     public const double HistoryPenaltyRate = 0.25;
     public const double PickPower = 8.0;
+
+    // UpdateAge neighbor falloff: increment = 1 / (1 + (distance / AgeNeighborScale)^2),
+    // skipped entirely past AgeNeighborRadius (where increment would round below 0.01).
+    // R=0.38 measured (20k-query sample against the full 139k library) to keep the
+    // worst-case neighbor count under ~8100 - safely below AgeMaxUpdates - while pushing
+    // the typical (median) count past 100, not just the mean.
+    public const float AgeNeighborRadius = 0.38f;
+    public const float AgeNeighborScale = 0.0382f;
+
+    // Dense clusters can still exceed AgeNeighborRadius's typical neighbor count; cap the
+    // per-call update batch so one UpdateAge() never turns into a multi-thousand-row write.
+    public const int AgeMaxUpdates = 9000;
     public const char CharEllipsis = '\u2026';
 
     // not used
@@ -43,7 +50,7 @@ public static class AppConsts
     public const string AttributeLastView = "lastview";
     public const string AttributeHistory = "history";
     public const string AttributeRate = "rate";
-    public const string AttributeDistance = "distance";
+    public const string AttributeAge = "age";
 
     public const string TableVars = "vars";
     public const string AttributeMaxImages = "maximages";

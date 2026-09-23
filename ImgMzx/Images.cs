@@ -3,7 +3,6 @@ using SixLabors.ImageSharp.Processing;
 using System.Data;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Security.Policy;
 using System.Text;
 
 namespace ImgMzx;
@@ -19,14 +18,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
     public bool ShowXOR;
     public Vit Vit => _vit;
 
-    // not used
-    /*
-    public SqliteConnection GetSqliteConnection()
-    {
-        return _sqlConnection;
-    }
-    */
-
     public void Load(IProgress<string>? progress) {
         _sqlConnection.ConnectionString = new SqliteConnectionStringBuilder {
             DataSource = filedatabase,
@@ -37,25 +28,23 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         _maxImages = 0;
         lock (_lock) {
             using var command = new SqliteCommand(
-                $@"SELECT {AppConsts.AttributeMaxImages}, {AppConsts.AttributeVector} FROM {AppConsts.TableVars};",
+                $@"SELECT {AppConsts.AttributeMaxImages} FROM {AppConsts.TableVars};",
                 _sqlConnection);
             using var reader = command.ExecuteReader();
             if (reader.Read()) {
                 _maxImages = (int)reader.GetInt64(0);
-
-                // A missing or short blob leaves _center zeroed; PickNextSubject
-                // then bootstraps it from the first image it drifts towards.
-                if (!reader.IsDBNull(1)) {
-                    var centerBytes = MemoryMarshal.AsBytes(_center.AsSpan());
-                    using var stream = reader.GetStream(1);
-                    if (stream.Length == centerBytes.Length) {
-                        stream.ReadExactly(centerBytes);
-                    }
-                }
             }
         }
 
-        var numVectors = _maxImages + 10000;
+        var imageCount = 0;
+        lock (_lock) {
+            using var countCommand = new SqliteCommand(
+                $"SELECT COUNT(*) FROM {AppConsts.TableImages}",
+                _sqlConnection);
+            imageCount = Convert.ToInt32(countCommand.ExecuteScalar());
+        }
+
+        var numVectors = Math.Max(_maxImages + 10000, imageCount + 10000);
         _vectors = new float[numVectors * AppConsts.VectorSize];
         _slotToHash = new string[numVectors];
         _historyLength = new int[numVectors];
@@ -139,30 +128,10 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         var history = img.FromHistory;
         lock (_lock) {
-
-            /*
-            var changed = false;
-            foreach (var h in history) {
-                if (ContainsImg(h)) {
-                    history.Remove(h);
-                    changed = true;
-                }
-            }
-
-            if (changed) {
-                img.ToHistory(history);
-            }
-            */
-
-            // Only the single best candidate is ever used, so there is no reason to
-            // build and sort a full beam - a parallel min-reduction over the vectors is
-            // O(n) with no allocation instead of O(n log n) plus two n-sized arrays.
             var (next, distance, cohortDelta) = FindNearest(img.Vector, hash, history, img.History.Length);
             if (string.IsNullOrEmpty(next)) {
                  return ("no suitable next image found", string.Empty);
             }
-
-            img.Distance = distance;
 
             sb.Append($"{distance:F4} ");
             if (cohortDelta > 0) {
@@ -174,15 +143,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         }
     }
 
-    /// <summary>
-    /// Best live image for <paramref name="query"/>, skipping <paramref name="hash"/>
-    /// itself and everything already in <paramref name="history"/>. Candidates are ranked
-    /// by distance plus <see cref="AppConsts.HistoryPenalty"/> per history entry of
-    /// difference from <paramref name="historyLength"/>: same-cohort images win whenever
-    /// they are anywhere near as close, but a cohort of one still finds a partner instead
-    /// of failing outright. Ties resolve to the lowest slot so the result does not depend
-    /// on how the work was partitioned.
-    /// </summary>
     private (string Hash, float Distance, int CohortDelta) FindNearest(
         ReadOnlySpan<float> query, string hash, SortedSet<string> history, int historyLength)
     {
@@ -343,15 +303,95 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
             imgX.ToHistory(hsX);
         }
 
-        (_, _) = GetNext(hashX);
-
         imgY.LastView = DateTime.Now;
         var hsY = imgY.FromHistory;
         if (hsY.Add(hashX)) {
             imgY.ToHistory(hsY);
         }
 
-        (_, _) = GetNext(hashY);
+        UpdateAge(hashX);
+    }
+
+    /// <summary>
+    /// Increases Age for the given image (epicenter, distance 0 -> increment 1.0) and for
+    /// every other image within AgeNeighborRadius, falling off with the square of distance
+    /// so only near-duplicates get a meaningful bump. Neighbors are found by a full scan of
+    /// the in-memory vectors (parallelized), the writes themselves are a handful of plain
+    /// "age = age + @increment" updates batched in one transaction.
+    /// </summary>
+    public void UpdateAge(string hash)
+    {
+        lock (_lock) {
+            if (!_hashToIndex.TryGetValue(hash, out var selfSlot)) {
+                return;
+            }
+
+            var query = _vectors.AsSpan(selfSlot * AppConsts.VectorSize, AppConsts.VectorSize).ToArray();
+            var capacity = _slotToHash.Length;
+            var partitions = Math.Min(Environment.ProcessorCount, Math.Max(1, capacity));
+
+            var updates = new List<(string Hash, float Increment)>();
+            var sync = new Lock();
+
+            Parallel.For(
+                0, partitions,
+                () => new List<(string Hash, float Increment)>(),
+                (partition, _, local) => {
+                    var from = (int)((long)capacity * partition / partitions);
+                    var to = (int)((long)capacity * (partition + 1) / partitions);
+                    for (var slot = from; slot < to; slot++) {
+                        var candidate = _slotToHash[slot];
+                        if (candidate.Length == 0) {
+                            continue;
+                        }
+
+                        var vector = _vectors.AsSpan(slot * AppConsts.VectorSize, AppConsts.VectorSize);
+                        var distance = Vit.ComputeDistance(query, vector);
+                        if (distance >= AppConsts.AgeNeighborRadius) {
+                            continue;
+                        }
+
+                        var scaled = distance / AppConsts.AgeNeighborScale;
+                        var increment = 1.0f / (1.0f + scaled * scaled);
+                        local.Add((candidate, increment));
+                    }
+
+                    return local;
+                },
+                local => {
+                    lock (sync) {
+                        updates.AddRange(local);
+                    }
+                });
+
+            if (updates.Count > AppConsts.AgeMaxUpdates) {
+                // Keep the closest ones (largest increment) so the cap bites the long,
+                // barely-there tail first, not the near-duplicates that actually matter.
+                updates.Sort((a, b) => b.Increment.CompareTo(a.Increment));
+                updates.RemoveRange(AppConsts.AgeMaxUpdates, updates.Count - AppConsts.AgeMaxUpdates);
+            }
+
+            using var transaction = _sqlConnection.BeginTransaction();
+            using var command = _sqlConnection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText =
+                $"UPDATE {AppConsts.TableImages} SET {AppConsts.AttributeAge} = {AppConsts.AttributeAge} + @increment " +
+                $"WHERE {AppConsts.AttributeHash} = @hash";
+            var incrementParam = command.CreateParameter();
+            incrementParam.ParameterName = "@increment";
+            command.Parameters.Add(incrementParam);
+            var hashParam = command.CreateParameter();
+            hashParam.ParameterName = "@hash";
+            command.Parameters.Add(hashParam);
+
+            foreach (var (candidateHash, increment) in updates) {
+                incrementParam.Value = increment;
+                hashParam.Value = candidateHash;
+                command.ExecuteNonQuery();
+            }
+                                       
+            transaction.Commit();
+        }
     }
 
     public string? DeleteLeft(IProgress<string>? progress)
@@ -366,7 +406,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         var imgY = GetImgFromDatabase(hashY);
         imgY.LastView = DateTime.Now;
-        GetNext(hashY);   // return value not used, called for its side effects
 
         return FindClosest(vectorX);
     }
@@ -383,7 +422,7 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         var imgX = GetImgFromDatabase(hashX);
         imgX.LastView = DateTime.Now;
-        GetNext(hashX);   // return value not used, called for its side effects
+        UpdateAge(hashX);
 
         return vectorY.Length == AppConsts.VectorSize ? FindClosest(vectorY) : null;
     }

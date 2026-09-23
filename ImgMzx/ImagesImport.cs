@@ -54,6 +54,9 @@ public partial class Images : IDisposable
                             bad++;
                         }
                         else {
+                            var moments = Vit.CalculateColorMoments(image);
+                            var bucket = Vit.CalculateColorBucket(moments);
+
                             var imgnew = new Img(
                                 hash: hash,
                                 rotateMode: RotateMode.None,
@@ -61,7 +64,7 @@ public partial class Images : IDisposable
                                 lastView: lastview,
                                 history: string.Empty,
                                 rate: 0,
-                                distance: 0.0f,
+                                age: 0.0f,
                                 images: this);
 
                             AddImgToDatabase(imgnew, vector.AsSpan());

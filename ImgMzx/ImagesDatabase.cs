@@ -42,19 +42,24 @@ public partial class Images : IDisposable
     public void UpdateImgInDatabase(string hash, string key, object val)
     {
         lock (_lock) {
-            // Single choke point for every column write, so the in-memory history
-            // mirror used by GetNext/FindClosest cannot drift away from the database.
-            if (key == AppConsts.AttributeHistory && _hashToIndex.TryGetValue(hash, out var cachedSlot)) {
+            UpdateImgInDatabaseUnlocked(hash, key, val);
+        }
+    }
+
+    private void UpdateImgInDatabaseUnlocked(string hash, string key, object val)
+    {
+        if (_hashToIndex.TryGetValue(hash, out var cachedSlot)) {
+            if (key == AppConsts.AttributeHistory) {
                 _historyLength[cachedSlot] = ((string?)val)?.Length ?? 0;
             }
-
-            using var sqlCommand = new SqliteCommand(
-                $"UPDATE {AppConsts.TableImages} SET {key} = @value WHERE {AppConsts.AttributeHash} = @hash",
-                _sqlConnection);
-            sqlCommand.Parameters.AddWithValue("@value", val ?? DBNull.Value);
-            sqlCommand.Parameters.AddWithValue("@hash", hash);
-            sqlCommand.ExecuteNonQuery();
         }
+
+        using var sqlCommand = new SqliteCommand(
+            $"UPDATE {AppConsts.TableImages} SET {key} = @value WHERE {AppConsts.AttributeHash} = @hash",
+            _sqlConnection);
+        sqlCommand.Parameters.AddWithValue("@value", val ?? DBNull.Value);
+        sqlCommand.Parameters.AddWithValue("@hash", hash);
+        sqlCommand.ExecuteNonQuery();
     }
 
     public void AddImgToDatabase(Img img, Span<float> vector)
@@ -71,7 +76,7 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeHistory},
                 {AppConsts.AttributeVector},
                 {AppConsts.AttributeRate},
-                {AppConsts.AttributeDistance}
+                {AppConsts.AttributeAge}
             ) VALUES (
                 @{AppConsts.AttributeHash},
                 @{AppConsts.AttributeRotateMode},
@@ -80,7 +85,7 @@ public partial class Images : IDisposable
                 @{AppConsts.AttributeHistory},
                 @{AppConsts.AttributeVector},
                 @{AppConsts.AttributeRate},
-                @{AppConsts.AttributeDistance}
+                @{AppConsts.AttributeAge}
             );";
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRotateMode}", (int)img.RotateMode);
@@ -90,7 +95,7 @@ public partial class Images : IDisposable
             var vectorBytes = MemoryMarshal.Cast<float, byte>(GetVector(img.Hash)).ToArray();
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", vectorBytes);
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRate}", img.Rate);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeDistance}", img.Distance);
+            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeAge}", img.Age);
             sqlCommand.ExecuteNonQuery();
 
             MaxImages--;
@@ -108,7 +113,7 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeLastView},
                 {AppConsts.AttributeHistory},
                 {AppConsts.AttributeRate},
-                {AppConsts.AttributeDistance}
+                {AppConsts.AttributeAge}
             FROM {AppConsts.TableImages}
             WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash};";
             using var sqlCommand = new SqliteCommand(sql, _sqlConnection);
@@ -122,7 +127,7 @@ public partial class Images : IDisposable
                     lastView: new DateTime(reader.GetInt64(3)),
                     history: reader.GetString(4),
                     rate: reader.GetInt32(5),
-                    distance: reader.GetFloat(6),
+                    age: reader.GetFloat(6),
                     images: this);
             }
 
@@ -133,7 +138,7 @@ public partial class Images : IDisposable
                 lastView: DateTime.MinValue,
                 history: string.Empty,
                 rate: 0,
-                distance: 0.0f,
+                age: 0.0f,
                 images: this);
         }
     }
@@ -162,31 +167,12 @@ public partial class Images : IDisposable
         }
     }
 
-    /// <summary>
-    /// Picks the subject with the smallest history-penalised distance:
-    /// score = distance ^ (1 / (1 + HistoryPenaltyRate * entries)).
-    /// Since every distance is in (0, 1), taking a root of it moves it towards 1, so the
-    /// more history a row carries the worse its distance looks and the later it is picked,
-    /// while the ordering inside one history length is the plain distance ordering.
-    /// A row whose distance was never computed sorts as 0 - it is shown first so GetNext
-    /// fills the column in.
-    /// The penalty is a root rather than an added term on purpose: distance + rate * n
-    /// leaves the (0, 1) range at a large n - with rate 0.1 a row with seven entries
-    /// already scores 0.99 and anything above that is off the scale - while a root of a
-    /// value below 1 stays below 1 no matter how much history piles up.
-    /// </summary>
     public string PickNextSubject()
     {
         lock (_lock) {
-            // POW() needs SQLite 3.35+ built with SQLITE_ENABLE_MATH_FUNCTIONS; the
-            // bundled Microsoft.Data.Sqlite provider has it (verified against this build).
-            // History is a concatenation of fixed-length hashes, so LENGTH()/HashLength is
-            // the entry count - integer division, both operands being integers.
             using var command = new SqliteCommand(
                 $@"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages}
-                   ORDER BY POW(
-                       COALESCE({AppConsts.AttributeDistance}, 0.0),
-                       1.0 / (1.0 + {AppConsts.HistoryPenaltyRate} * (LENGTH({AppConsts.AttributeHistory}) / {AppConsts.HashLength})))
+                   ORDER BY {AppConsts.AttributeAge}
                    LIMIT 1;",
                 _sqlConnection);
             return command.ExecuteScalar() as string ?? string.Empty;

@@ -184,6 +184,8 @@ public sealed partial class MainWindow
                 sb.Append($" [{ix.Img.History.Length / AppConsts.HashLength}]");
             }
 
+            sb.Append($" <{ix.Img.Age:F2}>");
+
             sb.AppendLine();
 
             sb.Append($"{Helper.SizeToString(ix.Size)} ");

@@ -10,7 +10,7 @@ public struct Img(
     FlipMode flipMode,
     string history,
     int rate,
-    float distance,
+    float age,
     Images images)
 {
     private readonly Images _images = images;
@@ -101,12 +101,12 @@ public struct Img(
         }
     }
 
-    private float _distance = distance;
-    public float Distance {
-        get { return _distance; }
+    private float _age = age;
+    public float Age {
+        get { return _age; }
         set {
-            _distance = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeDistance, value);
+            _age = value;
+            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeAge, value);
         }
     }
 }

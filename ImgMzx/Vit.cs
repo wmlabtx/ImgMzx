@@ -134,6 +134,105 @@ public class Vit : IDisposable
         return Math.Clamp(1f - dot, 0f, 1f);
     }
 
+    public static float[] CalculateColorMoments(Image<Rgb24> image) => CalculateColorMoments(image, 128);
+
+    private static float[] CalculateColorMoments(Image<Rgb24> image, int shortSide)
+    {
+        var minSide = Math.Min(image.Width, image.Height);
+        Image<Rgb24>? resized = null;
+        var source = image;
+        if (minSide > shortSide) {
+            var scale = (float)shortSide / minSide;
+            var w = Math.Max(1, (int)Math.Round(image.Width * scale));
+            var h = Math.Max(1, (int)Math.Round(image.Height * scale));
+            resized = image.Clone(ctx => ctx.Resize(w, h));
+            source = resized;
+        }
+
+        var pixelCount = source.Width * source.Height;
+        var l = new float[pixelCount];
+        var a = new float[pixelCount];
+        var b = new float[pixelCount];
+
+        source.ProcessPixelRows(accessor => {
+            for (int y = 0; y < accessor.Height; y++) {
+                var row = accessor.GetRowSpan(y);
+                var offset = y * accessor.Width;
+                for (int x = 0; x < accessor.Width; x++) {
+                    var p = row[x];
+                    var (lv, av, bv) = AppColor.RgbToLab(p.R, p.G, p.B);
+                    var idx = offset + x;
+                    l[idx] = lv;
+                    a[idx] = av;
+                    b[idx] = bv;
+                }
+            }
+        });
+
+        resized?.Dispose();
+
+        return [Median(l), Median(a), Median(b), StdDev(l), StdDev(a), StdDev(b)];
+    }
+
+    private static float Median(float[] values)
+    {
+        Array.Sort(values);
+        var mid = values.Length / 2;
+        return values.Length % 2 == 0
+            ? (values[mid - 1] + values[mid]) * 0.5f
+            : values[mid];
+    }
+
+    private static float StdDev(ReadOnlySpan<float> values)
+    {
+        var mean = TensorPrimitives.Sum(values) / values.Length;
+        var sumSq = 0f;
+        foreach (var v in values) {
+            var d = v - mean;
+            sumSq += d * d;
+        }
+
+        return MathF.Sqrt(sumSq / values.Length);
+    }
+
+    public const int ColorBucketCount = 512;
+
+    // Quantile cut points fitted on a 20k-image sample of the library (medianL/A/B, sigmaL/A/B).
+    // 4 bins each for medianL/A/B, 2 bins each for sigmaL/A/B: 4*4*4*2*2*2 = 512 buckets.
+    private static readonly float[] MedianLEdges = [44.31f, 55.65f, 66.45f];
+    private static readonly float[] MedianAEdges = [0.05f, 3.53f, 9.35f];
+    private static readonly float[] MedianBEdges = [2.32f, 9.72f, 18.51f];
+    private static readonly float[] SigmaLEdges = [20.63f];
+    private static readonly float[] SigmaAEdges = [8.59f];
+    private static readonly float[] SigmaBEdges = [10.92f];
+
+    public static int CalculateColorBucket(ReadOnlySpan<float> moments)
+    {
+        var biL = BinIndex(moments[0], MedianLEdges);
+        var biA = BinIndex(moments[1], MedianAEdges);
+        var biB = BinIndex(moments[2], MedianBEdges);
+        var biSL = BinIndex(moments[3], SigmaLEdges);
+        var biSA = BinIndex(moments[4], SigmaAEdges);
+        var biSB = BinIndex(moments[5], SigmaBEdges);
+
+        return biL * 128 + biA * 32 + biB * 8 + biSL * 4 + biSA * 2 + biSB;
+    }
+
+    // Edges are the only interior cut points; a value below the first or above the last
+    // edge falls into the outer (open-ended) bin, so future outliers always resolve to
+    // a valid index instead of needing an explicit +-infinity sentinel.
+    private static int BinIndex(float value, ReadOnlySpan<float> edges)
+    {
+        var idx = 0;
+        for (var i = 0; i < edges.Length; i++) {
+            if (value > edges[i]) {
+                idx++;
+            }
+        }
+
+        return idx;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
