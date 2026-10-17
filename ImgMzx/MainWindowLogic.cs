@@ -1,8 +1,6 @@
 ﻿using System.Text;
 using System.Windows;
 using System.Windows.Input;
-// not used
-// using System.Windows.Controls;
 using SixLabors.ImageSharp.Processing;
 using System.Runtime.Versioning;
 
@@ -111,28 +109,12 @@ public sealed partial class MainWindow
         }
     }
 
-    private async void ButtonLeftRateMouseClick()
-    {
-        DisableElements();
-        _images.Rate(0);
-        DrawCanvas();
-        EnableElements();
-    }
-
     private async void ButtonRightNextMouseClick()
     {
         DisableElements();
         await Task.Run(() => { _images.Confirm(_progress); }).ConfigureAwait(true);
         var hashX = _images.GetPanel(0)!.Value.Hash;
         await Task.Run(() => { _images.Find(hashX, _progress); }).ConfigureAwait(true);
-        DrawCanvas();
-        EnableElements();
-    }
-
-    private async void ButtonRightRateMouseClick()
-    {
-        DisableElements();
-        _images.Rate(1);
         DrawCanvas();
         EnableElements();
     }
@@ -184,7 +166,8 @@ public sealed partial class MainWindow
                 sb.Append($" [{ix.Img.History.Length / AppConsts.HashLength}]");
             }
 
-            sb.Append($" <{ix.Img.Age:F2}>");
+            var score = _images.GetScore(ix.Img.Vector);
+            sb.Append($" ({score:F4})");
 
             sb.AppendLine();
 
@@ -203,15 +186,10 @@ public sealed partial class MainWindow
 
             pLabels[index].Text = sb.ToString();
 
-            if (ix.Image != null && ix.Img.Rate > 0) {
-                pLabels[index].Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Yellow);
-            }
-            else {
-                var length = ix.Img.History.Length / AppConsts.HashLength;
-                var t = (byte)(255 * (1.0 - Math.Min(length, 16) / 16.0));
-                pLabels[index].Background = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(t, 255, t));
-            }
+            var length = ix.Img.History.Length / AppConsts.HashLength;
+            var t = (byte)(255 * (1.0 - Math.Min(length, 16) / 16.0));
+            pLabels[index].Background = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(t, 255, t));
         }
 
         RedrawCanvas();

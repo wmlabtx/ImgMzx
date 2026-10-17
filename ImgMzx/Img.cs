@@ -9,8 +9,6 @@ public struct Img(
     RotateMode rotateMode,
     FlipMode flipMode,
     string history,
-    int rate,
-    float age,
     Images images)
 {
     private readonly Images _images = images;
@@ -89,24 +87,6 @@ public struct Img(
         set {
             _images.UpdateVector(_hash, value);
             _images.UpdateVectorInDatabase(_hash, value);
-        }
-    }
-
-    private int _rate = rate;
-    public int Rate {
-        get { return _rate; }
-        set {
-            _rate = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeRate, value);
-        }
-    }
-
-    private float _age = age;
-    public float Age {
-        get { return _age; }
-        set {
-            _age = value;
-            _images.UpdateImgInDatabase(_hash, AppConsts.AttributeAge, value);
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using Microsoft.Data.Sqlite;
 using SixLabors.ImageSharp.Processing;
+using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 
 namespace ImgMzx;
@@ -74,18 +75,14 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeFlipMode},
                 {AppConsts.AttributeLastView},
                 {AppConsts.AttributeHistory},
-                {AppConsts.AttributeVector},
-                {AppConsts.AttributeRate},
-                {AppConsts.AttributeAge}
+                {AppConsts.AttributeVector}
             ) VALUES (
                 @{AppConsts.AttributeHash},
                 @{AppConsts.AttributeRotateMode},
                 @{AppConsts.AttributeFlipMode},
                 @{AppConsts.AttributeLastView},
                 @{AppConsts.AttributeHistory},
-                @{AppConsts.AttributeVector},
-                @{AppConsts.AttributeRate},
-                @{AppConsts.AttributeAge}
+                @{AppConsts.AttributeVector}
             );";
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHash}", img.Hash);
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRotateMode}", (int)img.RotateMode);
@@ -94,8 +91,6 @@ public partial class Images : IDisposable
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeHistory}", img.History);
             var vectorBytes = MemoryMarshal.Cast<float, byte>(GetVector(img.Hash)).ToArray();
             sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeVector}", vectorBytes);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeRate}", img.Rate);
-            sqlCommand.Parameters.AddWithValue($"@{AppConsts.AttributeAge}", img.Age);
             sqlCommand.ExecuteNonQuery();
 
             MaxImages--;
@@ -111,9 +106,7 @@ public partial class Images : IDisposable
                 {AppConsts.AttributeRotateMode},
                 {AppConsts.AttributeFlipMode},
                 {AppConsts.AttributeLastView},
-                {AppConsts.AttributeHistory},
-                {AppConsts.AttributeRate},
-                {AppConsts.AttributeAge}
+                {AppConsts.AttributeHistory}
             FROM {AppConsts.TableImages}
             WHERE {AppConsts.AttributeHash} = @{AppConsts.AttributeHash};";
             using var sqlCommand = new SqliteCommand(sql, _sqlConnection);
@@ -126,8 +119,6 @@ public partial class Images : IDisposable
                     flipMode: Enum.Parse<FlipMode>(reader.GetInt64(2).ToString()),
                     lastView: new DateTime(reader.GetInt64(3)),
                     history: reader.GetString(4),
-                    rate: reader.GetInt32(5),
-                    age: reader.GetFloat(6),
                     images: this);
             }
 
@@ -137,8 +128,6 @@ public partial class Images : IDisposable
                 flipMode: FlipMode.None,
                 lastView: DateTime.MinValue,
                 history: string.Empty,
-                rate: 0,
-                age: 0.0f,
                 images: this);
         }
     }
@@ -170,12 +159,59 @@ public partial class Images : IDisposable
     public string PickNextSubject()
     {
         lock (_lock) {
-            using var command = new SqliteCommand(
-                $@"SELECT {AppConsts.AttributeHash} FROM {AppConsts.TableImages}
-                   ORDER BY {AppConsts.AttributeAge}
-                   LIMIT 1;",
-                _sqlConnection);
-            return command.ExecuteScalar() as string ?? string.Empty;
+            // Scope = all images with the minimal history length; pick the lowest score from it.
+            // Single in-memory pass: _historyLength mirrors the DB, so no SQL is needed.
+            // Candidates are compared as (history length, score, slot) - lexicographically smaller wins.
+            var capacity = _slotToHash.Length;
+            var partitions = Math.Min(Environment.ProcessorCount, Math.Max(1, capacity));
+
+            var bestSlot = -1;
+            var bestLength = int.MaxValue;
+            var bestScore = float.MaxValue;
+            var sync = new Lock();
+
+            Parallel.For(
+                0, partitions,
+                () => (Slot: -1, Length: int.MaxValue, Score: float.MaxValue),
+                (partition, _, local) => {
+                    var from = (int)((long)capacity * partition / partitions);
+                    var to = (int)((long)capacity * (partition + 1) / partitions);
+                    for (var slot = from; slot < to; slot++) {
+                        if (_slotToHash[slot].Length == 0) {
+                            continue;
+                        }
+
+                        var length = _historyLength[slot];
+                        if (length > local.Length) {
+                            continue;
+                        }
+
+                        var vector = _vectors.AsSpan(slot * AppConsts.VectorSize, AppConsts.VectorSize);
+                        var score = TensorPrimitives.Dot(_wf, vector) + _bf;
+                        if (length < local.Length || score < local.Score) {
+                            local = (slot, length, score);
+                        }
+                    }
+
+                    return local;
+                },
+                local => {
+                    if (local.Slot < 0) {
+                        return;
+                    }
+
+                    lock (sync) {
+                        if (local.Length < bestLength ||
+                            (local.Length == bestLength && (local.Score < bestScore ||
+                                (local.Score == bestScore && local.Slot < bestSlot)))) {
+                            bestSlot = local.Slot;
+                            bestLength = local.Length;
+                            bestScore = local.Score;
+                        }
+                    }
+                });
+
+            return bestSlot < 0 ? string.Empty : _slotToHash[bestSlot];
         }
     }
 

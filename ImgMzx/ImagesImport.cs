@@ -63,8 +63,6 @@ public partial class Images : IDisposable
                                 flipMode: FlipMode.None,
                                 lastView: lastview,
                                 history: string.Empty,
-                                rate: 0,
-                                age: 0.0f,
                                 images: this);
 
                             AddImgToDatabase(imgnew, vector.AsSpan());

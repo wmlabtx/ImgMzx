@@ -34,8 +34,6 @@ public partial class Images : IDisposable
                 flipMode: FlipMode.None,
                 lastView: DateTime.MinValue,
                 history: string.Empty,
-                rate: 0,
-                age: 0.0f,
                 images: this) {
         };
         if (!AppHash.IsValidHash(hash) || !ContainsImg(hash)) {
@@ -141,20 +139,5 @@ public partial class Images : IDisposable
             panel.Img = img;
             _imgPanels[index] = panel;
         }
-    }
-
-    public void Rate(int index)
-    {
-        var panel = _imgPanels[index]!.Value;
-        var hash = panel.Hash;
-        var img = GetImgFromDatabase(hash);
-        if (img.Hash.Length == 0) {
-            return;
-        }
-
-        img.Rate = 1 - img.Rate;
-
-        UpdateImgInDatabase(hash, AppConsts.AttributeRate, img.Rate);
-        UpdatePanel(index, panel);
     }
 }
