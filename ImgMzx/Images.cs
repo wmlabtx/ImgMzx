@@ -26,34 +26,13 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         }.ToString();
         _sqlConnection.Open();
         _maxImages = 0;
-        _w = new float[AppConsts.VectorSize];
-        _b = 0f;
-        _mu = new float[AppConsts.VectorSize];
-        _sigma = new float[AppConsts.VectorSize];
-        var hasScoreSpace = false;
         lock (_lock) {
             using var command = new SqliteCommand(
-                $@"SELECT {AppConsts.AttributeMaxImages}, {AppConsts.AttributeW}, {AppConsts.AttributeB}, {AppConsts.AttributeMu}, {AppConsts.AttributeSigma} FROM {AppConsts.TableVars};",
+                $@"SELECT {AppConsts.AttributeMaxImages} FROM {AppConsts.TableVars};",
                 _sqlConnection);
             using var reader = command.ExecuteReader();
             if (reader.Read()) {
                 _maxImages = (int)reader.GetInt64(0);
-                if (!reader.IsDBNull(1)) {
-                    using var stream = reader.GetStream(1);
-                    stream.ReadExactly(MemoryMarshal.AsBytes(_w.AsSpan()));
-                }
-                if (!reader.IsDBNull(2)) {
-                    _b = (float)reader.GetDouble(2);
-                }
-                if (!reader.IsDBNull(3) && !reader.IsDBNull(4)) {
-                    using (var stream = reader.GetStream(3)) {
-                        stream.ReadExactly(MemoryMarshal.AsBytes(_mu.AsSpan()));
-                    }
-                    using (var stream = reader.GetStream(4)) {
-                        stream.ReadExactly(MemoryMarshal.AsBytes(_sigma.AsSpan()));
-                    }
-                    hasScoreSpace = true;
-                }
             }
         }
 
@@ -98,17 +77,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         _freeSlots = new Stack<int>(Enumerable.Range(counter, numVectors - counter).Reverse());
         progress?.Report($"Loaded {counter} vectors");
-
-        if (!hasScoreSpace) {
-            // mu/sigma are frozen once: recomputing them would silently change what W means.
-            // W/B learned in any other space are meaningless here, so they start over.
-            progress?.Report($"Computing score space{AppConsts.CharEllipsis}");
-            ComputeScoreSpace(counter);
-            W = new float[AppConsts.VectorSize];
-            B = 0f;
-        }
-
-        UpdateFoldedScore();
     }
 
     public (string Hash, float Distance)[] GetBeam(ReadOnlySpan<float> query)
@@ -261,7 +229,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         do {
             if (string.IsNullOrEmpty(hashX)) {
                 hashX = PickNextSubject();
-                //hashX = PickNextSubjectByScore();
                 if (string.IsNullOrEmpty(hashX)) {
                     var totalcount = GetCount();
                     progress?.Report($"totalcount = {totalcount}");
@@ -330,12 +297,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
 
         progress?.Report($"Calculating{AppConsts.CharEllipsis}");
 
-        var vectorX = GetVector(hashX).ToArray();
-        FitScore(vectorX, true);
-
-        var vectorY = GetVector(hashY).ToArray();
-        FitScore(vectorY, true);
-
         imgX.LastView = DateTime.Now;
         var hsX = imgX.FromHistory;
         if (hsX.Add(hashY)) {
@@ -351,7 +312,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
         var vectorX = GetVector(hashX).ToArray();
-        FitScore(vectorX, false);
 
         AppFile.DeleteMex(hashX, DateTime.Now);
         DeleteImgInDatabase(hashX);
@@ -368,7 +328,6 @@ public partial class Images(string filedatabase, string filevit) : IDisposable
         var hashX = _imgPanels[0]!.Value.Hash;
         var hashY = _imgPanels[1]!.Value.Hash;
         var vectorY = GetVector(hashY).ToArray();
-        FitScore(vectorY, false);
 
         AppFile.DeleteMex(hashY, DateTime.Now);
         DeleteImgInDatabase(hashY);

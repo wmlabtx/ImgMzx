@@ -166,9 +166,6 @@ public sealed partial class MainWindow
                 sb.Append($" [{ix.Img.History.Length / AppConsts.HashLength}]");
             }
 
-            var score = _images.GetScore(ix.Img.Vector);
-            sb.Append($" ({score:F4})");
-
             sb.AppendLine();
 
             sb.Append($"{Helper.SizeToString(ix.Size)} ");

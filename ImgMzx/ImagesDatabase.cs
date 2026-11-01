@@ -1,6 +1,5 @@
 ﻿using Microsoft.Data.Sqlite;
 using SixLabors.ImageSharp.Processing;
-using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 
 namespace ImgMzx;
@@ -156,63 +155,46 @@ public partial class Images : IDisposable
         }
     }
 
+    /// <summary>
+    /// Scope = 1.5x the size of the minimal-history group, filled in history-length order
+    /// (ties broken randomly), so the next levels up also get a share (~1/3 of the scope).
+    /// From the scope one row is picked with probability proportional to how long ago it
+    /// was seen: weight = (maxLastView - lastView) in seconds + 1, so the least recently
+    /// viewed rows get the largest share and the freshest still keeps a non-zero chance.
+    /// </summary>
     public string PickNextSubject()
     {
+        var minHistoryCount = GetMinHistoryCount();
+        var scope = minHistoryCount + minHistoryCount / 2;
+        var rows = new List<(string Hash, long LastView)>(scope);
         lock (_lock) {
-            // Scope = all images with the minimal history length; pick the lowest score from it.
-            // Single in-memory pass: _historyLength mirrors the DB, so no SQL is needed.
-            // Candidates are compared as (history length, score, slot) - lexicographically smaller wins.
-            var capacity = _slotToHash.Length;
-            var partitions = Math.Min(Environment.ProcessorCount, Math.Max(1, capacity));
-
-            var bestSlot = -1;
-            var bestLength = int.MaxValue;
-            var bestScore = float.MaxValue;
-            var sync = new Lock();
-
-            Parallel.For(
-                0, partitions,
-                () => (Slot: -1, Length: int.MaxValue, Score: float.MaxValue),
-                (partition, _, local) => {
-                    var from = (int)((long)capacity * partition / partitions);
-                    var to = (int)((long)capacity * (partition + 1) / partitions);
-                    for (var slot = from; slot < to; slot++) {
-                        if (_slotToHash[slot].Length == 0) {
-                            continue;
-                        }
-
-                        var length = _historyLength[slot];
-                        if (length > local.Length) {
-                            continue;
-                        }
-
-                        var vector = _vectors.AsSpan(slot * AppConsts.VectorSize, AppConsts.VectorSize);
-                        var score = TensorPrimitives.Dot(_wf, vector) + _bf;
-                        if (length < local.Length || score < local.Score) {
-                            local = (slot, length, score);
-                        }
-                    }
-
-                    return local;
-                },
-                local => {
-                    if (local.Slot < 0) {
-                        return;
-                    }
-
-                    lock (sync) {
-                        if (local.Length < bestLength ||
-                            (local.Length == bestLength && (local.Score < bestScore ||
-                                (local.Score == bestScore && local.Slot < bestSlot)))) {
-                            bestSlot = local.Slot;
-                            bestLength = local.Length;
-                            bestScore = local.Score;
-                        }
-                    }
-                });
-
-            return bestSlot < 0 ? string.Empty : _slotToHash[bestSlot];
+            using var command = new SqliteCommand(
+                $@"SELECT {AppConsts.AttributeHash}, {AppConsts.AttributeLastView} FROM {AppConsts.TableImages}
+                   ORDER BY LENGTH({AppConsts.AttributeHistory}), RANDOM()
+                   LIMIT @scope;",
+                _sqlConnection);
+            command.Parameters.AddWithValue("@scope", scope);
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) {
+                rows.Add((reader.GetString(0), reader.GetInt64(1)));
+            }
         }
+
+        if (rows.Count == 0) {
+            return string.Empty;
+        }
+
+        var maxLastView = rows.Max(r => r.LastView);
+        var weights = rows.Select(r => (maxLastView - r.LastView) / TimeSpan.TicksPerSecond + 1).ToArray();
+        var point = Random.Shared.NextInt64(weights.Sum());
+        for (var i = 0; i < weights.Length; i++) {
+            point -= weights[i];
+            if (point < 0) {
+                return rows[i].Hash;
+            }
+        }
+
+        return rows[^1].Hash;
     }
 
     public DateTime GetLastView()
